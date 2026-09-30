@@ -28,7 +28,7 @@ test("server-renders the finished Rievastra simulator shell", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Rievastra — Orbital Mission Laboratory<\/title>/i);
+  assert.match(html, /<title>Rievastra — Exploration Systems Laboratory<\/title>/i);
   assert.match(html, /RIEVA\/\/STRA/);
   assert.match(html, /Shape an orbit\. Interrupt the engine\. Measure what changes\./);
   assert.match(html, /Mission inputs/);
@@ -45,4 +45,21 @@ test("includes honest model language and accessible entry points", async () => {
   assert.match(html, /Crossing target altitude alone is not circular-orbit insertion/i);
   assert.match(html, /No atmosphere or drag/i);
   assert.match(html, /Export CSV/);
+});
+
+test("server-renders the Surface Studio without replacing Orbital Flight", async () => {
+  const response = await render();
+  const html = await response.text();
+
+  assert.match(html, /Orbital Flight/);
+  assert.match(html, /Surface Studio/);
+  assert.match(html, /Protective systems, tailored with intent\./);
+  assert.match(html, /SELENE/);
+  assert.match(html, /AREO/);
+  assert.match(html, /VECTOR/);
+  assert.match(html, /Required items present/);
+  assert.match(html, /UV ≠ ionizing radiation/);
+  assert.match(html, /No store/);
+  assert.doesNotMatch(html, /shopping cart|checkout|buy now/i);
+  assert.match(html, /does not mean safe, certified, integrated, or flight ready/i);
 });

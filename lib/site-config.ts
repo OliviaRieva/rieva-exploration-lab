@@ -5,10 +5,10 @@
 export const siteConfig = {
   name: "Rievastra",
   wordmark: "RIEVA//STRA",
-  descriptor: "Orbital Mission Laboratory",
-  title: "Rievastra — Orbital Mission Laboratory",
+  descriptor: "Exploration Systems Laboratory",
+  title: "Rievastra — Exploration Systems Laboratory",
   description:
-    "An interactive, transparent electric-propulsion mission simulator for comparing uninterrupted and power-loss orbital transfers.",
-  tagline: "Low-thrust trajectories, made inspectable.",
+    "Interactive orbital-flight physics and a research-informed 3D missionwear studio for transparent aerospace exploration.",
+  tagline: "Flight dynamics and surface systems, made inspectable.",
   defaultMissionName: "LEO → higher-orbit power-loss study",
 } as const;

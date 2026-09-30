@@ -1,5 +1,5 @@
-import { SimulatorApp } from "./components/SimulatorApp";
+import { RievastraApp } from "./components/RievastraApp";
 
 export default function Home() {
-  return <SimulatorApp />;
+  return <RievastraApp />;
 }

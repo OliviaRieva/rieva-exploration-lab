@@ -1,6 +1,6 @@
-# Rievastra — Orbital Mission Laboratory
+# Rievastra — Exploration Systems Laboratory
 
-Rievastra is an interactive, browser-based electric-propulsion mission study. It propagates two spacecraft from the same circular Earth orbit: an uninterrupted reference and an otherwise identical mission with one engine interruption. The UI keeps numerical computation separate from animation playback, displays actual propagated telemetry, and exports the complete common-time-axis dataset as CSV.
+Rievastra combines two persistent browser laboratories. **Orbital Flight** is an electric-propulsion mission study that propagates an uninterrupted reference and an otherwise identical mission with one engine interruption. **Surface Studio — Missionwear** is an independent research-informed aerospace design exhibition with a procedural 3D suit configurator, materials inspector, and transparent mission rules. Switching laboratories preserves each section’s React state.
 
 The working name combines **Rieva** and *astra*. All public brand text is centralized in [`lib/site-config.ts`](lib/site-config.ts), so the site can be renamed in one edit.
 
@@ -18,7 +18,7 @@ Open the local address printed by the development server (normally `http://local
 Useful commands:
 
 ```bash
-npm run test:physics      # nine TypeScript physics checks
+npm run test:physics      # nine orbital checks + seven Surface Studio checks
 npm run validate:python   # independent standard-library Python validation
 npm run build             # production Cloudflare-compatible build
 npm test                  # physics tests + build + rendered-page checks
@@ -38,6 +38,20 @@ npm run lint
 - Actual CSV export at the stored 60 s output cadence.
 - Explanations, assumptions, primary references, and measured validation results.
 - Responsive layouts, labelled controls, visible focus states, reduced-motion support, and textual chart/scene descriptions.
+
+### Surface Studio — Missionwear
+
+- Three original concepts: lunar **SELENE**, Mars **AREO**, and Earth-training **VECTOR**.
+- A real Three.js model built from named procedural meshes—helmet, visors, neck ring, torso layers, joints, gloves, boots, backpack, staff, cat-ear pods, dust module, haptics, and assistive structures.
+- Mouse/touch orbit controls, wheel zoom, camera presets, clickable parts, exploded assembly, layered cutaway, detachable helmet in assembly mode, body-proportion presets, and an explicitly illustrative walk cycle.
+- Pearl/silver, white/champagne, and obsidian/gold palettes with visible thermal and optical caveats.
+- Editable outer tailoring and mission accessories without implying that pockets or pants replace pressure architecture.
+- Local save/load, validated JSON export, and canvas PNG export. No account or backend is involved.
+- Moon, Mars, Earth-training, and hypothetical higher-gravity rules using stated mass, gravity, and accessory-power assumptions.
+- Compatibility language limited to required items, conceptual combinations, and named unresolved conflicts—never a safety or certification score.
+- An editable equipment/materials/reference catalog with operational-heritage, demonstrated-research, and original-concept labels.
+
+The suit model is an educational integration concept, not qualified hardware. Habitat clothing, launch/entry garments, and surface EVA equipment are explicitly distinguished. A cooling or compression garment alone is not vacuum protection.
 
 ## Physics model
 
@@ -105,19 +119,25 @@ The TypeScript suite adds common-axis identity, zero-duration interruption equiv
 ```text
 app/
   components/
+    RievastraApp.tsx      state-preserving laboratory navigation
     SimulatorApp.tsx       complete mission console and playback state
     OrbitScene.tsx         interactive projected-3D Canvas scene
     MissionCharts.tsx      accessible computed SVG charts
     KnowledgeSections.tsx  technology, physics, validation, references
+    SurfaceStudio.tsx      collection, controls, inspector, rules, research
+    SurfaceSuitScene.tsx   named procedural Three.js suit meshes
   workers/
     mission.worker.ts      worker protocol and simulation execution
 lib/
   simulation/index.ts      framework-independent physics and RK4 solver
+  surface-studio/catalog.ts structured equipment, materials, palettes, sources
+  surface-studio/rules.ts  persistence validation, mass/weight, mission rules
   site-config.ts           single-source brand configuration
 scripts/
   validate.py              independent Python validation
 tests/
   simulation.test.ts       numerical and event checks
+  surface-studio.test.ts   persistence, requirements, mass and power checks
   rendered-html.test.mjs   production-render checks
 ```
 

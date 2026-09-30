@@ -72,6 +72,9 @@ const DEFAULT_EARTH_RADIUS_M = 6_371_000;
 const CYAN = "#70deef";
 const AMBER = "#ffb85c";
 const PALE = "#d9f4fb";
+const RECENT_TRAIL_DURATION_S = 6 * 60 * 60;
+const MAX_HISTORY_MARKERS = 720;
+const MAX_RECENT_TRAIL_POINTS = 420;
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
@@ -131,12 +134,17 @@ function interpolateSample(
   };
 }
 
-function samplesThrough(
+interface TrailSelection {
+  history: OrbitSceneSample[];
+  recent: OrbitSceneSample[];
+}
+
+function trailSamplesThrough(
   samples: readonly OrbitSceneSample[],
   timeS: number,
-  maximumPoints = 850,
-) {
-  if (samples.length === 0) return [];
+  current: OrbitSceneSample | null,
+): TrailSelection {
+  if (samples.length === 0) return { history: [], recent: [] };
   let low = 0;
   let high = samples.length;
   while (low < high) {
@@ -145,18 +153,59 @@ function samplesThrough(
     else high = middle;
   }
 
-  const count = Math.max(1, low);
-  const stride = Math.max(1, Math.ceil(count / maximumPoints));
-  const result: OrbitSceneSample[] = [];
-  for (let index = 0; index < count; index += stride) {
+  const count = low;
+  if (count === 0) return { history: [], recent: [] };
+
+  const recentStartS = Math.max(0, timeS - RECENT_TRAIL_DURATION_S);
+  let recentStartIndex = 0;
+  let recentHigh = count;
+  while (recentStartIndex < recentHigh) {
+    const middle = Math.floor((recentStartIndex + recentHigh) / 2);
+    if (samples[middle].timeS < recentStartS) recentStartIndex = middle + 1;
+    else recentHigh = middle;
+  }
+
+  const history: OrbitSceneSample[] = [];
+  const historyStride = Math.max(
+    1,
+    Math.ceil(Math.max(0, recentStartIndex) / MAX_HISTORY_MARKERS),
+  );
+  for (let index = 0; index < recentStartIndex; index += historyStride) {
     const sample = samples[index];
-    if (finiteSample(sample)) result.push(sample);
+    if (finiteSample(sample)) history.push(sample);
   }
-  const last = samples[count - 1];
-  if (last && result[result.length - 1] !== last && finiteSample(last)) {
-    result.push(last);
+  const lastHistory = samples[recentStartIndex - 1];
+  if (
+    lastHistory &&
+    history[history.length - 1] !== lastHistory &&
+    finiteSample(lastHistory)
+  ) {
+    history.push(lastHistory);
   }
-  return result;
+
+  const recent: OrbitSceneSample[] = [];
+  const recentCount = count - recentStartIndex;
+  const recentStride = Math.max(
+    1,
+    Math.ceil(recentCount / MAX_RECENT_TRAIL_POINTS),
+  );
+  for (let index = recentStartIndex; index < count; index += recentStride) {
+    const sample = samples[index];
+    if (finiteSample(sample)) recent.push(sample);
+  }
+  const latest = samples[count - 1];
+  if (latest && recent[recent.length - 1] !== latest && finiteSample(latest)) {
+    recent.push(latest);
+  }
+  if (
+    current &&
+    finiteSample(current) &&
+    recent[recent.length - 1]?.timeS !== current.timeS
+  ) {
+    recent.push(current);
+  }
+
+  return { history, recent };
 }
 
 function projectPoint(point: ScenePoint, projection: Projection): ProjectedPoint {
@@ -217,6 +266,75 @@ function drawSegmentPass(
   }
   context.stroke();
   context.restore();
+}
+
+function drawHistoryMarkers(
+  context: CanvasRenderingContext2D,
+  points: readonly ProjectedPoint[],
+  front: boolean,
+  color: string,
+  shape: "circle" | "diamond",
+) {
+  if (points.length === 0) return;
+  context.save();
+  context.fillStyle = color;
+  context.globalAlpha = front ? 0.2 : 0.075;
+  for (const point of points) {
+    if ((point.depth >= 0) !== front) continue;
+    if (shape === "diamond") {
+      context.beginPath();
+      context.moveTo(point.x, point.y - 1.2);
+      context.lineTo(point.x + 1.2, point.y);
+      context.lineTo(point.x, point.y + 1.2);
+      context.lineTo(point.x - 1.2, point.y);
+      context.closePath();
+      context.fill();
+    } else {
+      context.beginPath();
+      context.arc(point.x, point.y, 0.9, 0, TAU);
+      context.fill();
+    }
+  }
+  context.restore();
+}
+
+function drawRecentTrail(
+  context: CanvasRenderingContext2D,
+  points: readonly ProjectedPoint[],
+  front: boolean,
+  color: string,
+  dash: readonly number[] = [],
+) {
+  if (points.length < 2) return;
+  const chunkCount = Math.min(8, points.length - 1);
+  for (let chunk = 0; chunk < chunkCount; chunk += 1) {
+    const start = Math.floor((chunk / chunkCount) * (points.length - 1));
+    const end = Math.min(
+      points.length,
+      Math.ceil(((chunk + 1) / chunkCount) * (points.length - 1)) + 1,
+    );
+    const section = points.slice(start, end);
+    const age = (chunk + 1) / chunkCount;
+    const visibility = front ? 1 : 0.42;
+    drawSegmentPass(
+      context,
+      section,
+      front,
+      color,
+      6,
+      dash,
+      (0.025 + age * 0.075) * visibility,
+    );
+    drawSegmentPass(
+      context,
+      section,
+      front,
+      color,
+      front ? 2.2 : 1.7,
+      dash,
+      (0.2 + age * 0.72) * visibility,
+    );
+  }
 }
 
 function ringPoints(radiusM: number, projection: Projection, count = 180) {
@@ -319,9 +437,8 @@ function drawSpacecraft(
   sample: OrbitSceneSample | null,
   projection: Projection,
   earthScreenRadius: number,
-  color: string,
-  label: string,
-  filled: boolean,
+  accent: string,
+  variant: "reference" | "interrupted",
 ) {
   if (!sample) return;
   const point = projectSample(sample, projection);
@@ -339,49 +456,90 @@ function drawSpacecraft(
   const screenLength = Math.hypot(ahead.x - point.x, ahead.y - point.y) || 1;
   const dx = (ahead.x - point.x) / screenLength;
   const dy = (ahead.y - point.y) / screenLength;
-  const nx = -dy;
-  const ny = dx;
+  const angle = Math.atan2(dy, dx);
+  const isThrusting = (sample.thrustN ?? 0) > 1e-10;
 
-  if ((sample.thrustN ?? 0) > 1e-10) {
-    const thrustLength = 30;
-    const tipX = point.x + dx * thrustLength;
-    const tipY = point.y + dy * thrustLength;
+  context.save();
+  context.translate(point.x, point.y);
+  context.rotate(angle);
+
+  if (isThrusting) {
+    const flicker = 1 + Math.sin(sample.timeS * 0.19) * 0.12;
     context.save();
-    context.strokeStyle = color;
-    context.fillStyle = color;
-    context.globalAlpha = 0.72;
-    context.lineWidth = 1.5;
+    context.shadowColor = accent;
+    context.shadowBlur = 12;
+    context.fillStyle = accent;
+    context.globalAlpha = 0.62;
     context.beginPath();
-    context.moveTo(point.x + dx * 7, point.y + dy * 7);
-    context.lineTo(tipX, tipY);
-    context.stroke();
+    context.moveTo(-7, -2.5);
+    context.quadraticCurveTo(-16 * flicker, -4.5, -27 * flicker, 0);
+    context.quadraticCurveTo(-16 * flicker, 4.5, -7, 2.5);
+    context.closePath();
+    context.fill();
+    context.fillStyle = "#f8fcff";
+    context.globalAlpha = 0.9;
     context.beginPath();
-    context.moveTo(tipX, tipY);
-    context.lineTo(tipX - dx * 6 + nx * 3, tipY - dy * 6 + ny * 3);
-    context.lineTo(tipX - dx * 6 - nx * 3, tipY - dy * 6 - ny * 3);
+    context.moveTo(-7, -1.25);
+    context.quadraticCurveTo(-13 * flicker, -2, -19 * flicker, 0);
+    context.quadraticCurveTo(-13 * flicker, 2, -7, 1.25);
     context.closePath();
     context.fill();
     context.restore();
   }
 
   context.save();
-  context.shadowColor = color;
-  context.shadowBlur = 12;
-  context.strokeStyle = color;
-  context.fillStyle = filled ? color : "#071522";
-  context.lineWidth = 1.5;
+  context.strokeStyle = accent;
+  context.globalAlpha = variant === "reference" ? 0.58 : 0.72;
+  context.lineWidth = 1;
+  context.setLineDash(variant === "interrupted" ? [2.5, 2.5] : []);
   context.beginPath();
-  context.moveTo(point.x + dx * 7, point.y + dy * 7);
-  context.lineTo(point.x - dx * 5 + nx * 4.5, point.y - dy * 5 + ny * 4.5);
-  context.lineTo(point.x - dx * 3, point.y - dy * 3);
-  context.lineTo(point.x - dx * 5 - nx * 4.5, point.y - dy * 5 - ny * 4.5);
+  context.arc(0, 0, 13, 0, TAU);
+  context.stroke();
+  context.restore();
+
+  context.shadowColor = accent;
+  context.shadowBlur = 10;
+  context.fillStyle = "#f8fcff";
+  context.strokeStyle = "rgba(3, 13, 23, 0.92)";
+  context.lineWidth = 1.1;
+
+  context.beginPath();
+  context.moveTo(10, 0);
+  context.bezierCurveTo(7.3, -3.5, 2.5, -4.7, -5.8, -3.2);
+  context.lineTo(-7.2, -2.2);
+  context.lineTo(-7.2, 2.2);
+  context.lineTo(-5.8, 3.2);
+  context.bezierCurveTo(2.5, 4.7, 7.3, 3.5, 10, 0);
   context.closePath();
   context.fill();
   context.stroke();
+
+  context.beginPath();
+  context.moveTo(-3.4, -3.4);
+  context.lineTo(-7.5, -7.1);
+  context.lineTo(-7, -2.2);
+  context.closePath();
+  context.fill();
+  context.stroke();
+  context.beginPath();
+  context.moveTo(-3.4, 3.4);
+  context.lineTo(-7.5, 7.1);
+  context.lineTo(-7, 2.2);
+  context.closePath();
+  context.fill();
+  context.stroke();
+
   context.shadowBlur = 0;
-  context.fillStyle = "rgba(234, 247, 255, 0.82)";
-  context.font = "600 9px ui-monospace, SFMono-Regular, Menlo, monospace";
-  context.fillText(label, point.x + 10, point.y - 9);
+  context.fillStyle = "#071522";
+  context.strokeStyle = accent;
+  context.lineWidth = 1;
+  context.beginPath();
+  context.arc(3.1, 0, 2, 0, TAU);
+  context.fill();
+  context.stroke();
+
+  context.fillStyle = "#dce7ed";
+  context.fillRect(-8.2, -2.1, 1.4, 4.2);
   context.restore();
 }
 
@@ -453,33 +611,51 @@ function drawScene(
         ? radiusOf(options.interrupted[0])
         : 0;
   const initialRing = initialRadius > 0 ? ringPoints(initialRadius, projection) : [];
-  const referencePoints = samplesThrough(
+  const referenceTrail = trailSamplesThrough(
     options.reference,
     options.currentTimeS,
-  ).map((sample) => projectSample(sample, projection));
-  const interruptedSamples = samplesThrough(
+    options.referenceCurrent,
+  );
+  const interruptedTrail = trailSamplesThrough(
     options.interrupted,
     options.currentTimeS,
+    options.interruptedCurrent,
   );
-  const interruptedPoints = interruptedSamples.map((sample) =>
+  const referenceHistoryPoints = referenceTrail.history.map((sample) =>
     projectSample(sample, projection),
   );
+  const interruptedHistoryPoints = interruptedTrail.history.map((sample) =>
+    projectSample(sample, projection),
+  );
+  const referenceRecentPoints = referenceTrail.recent.map((sample) =>
+    projectSample(sample, projection),
+  );
+  const interruptedRecentPoints = interruptedTrail.recent.map((sample) =>
+    projectSample(sample, projection),
+  );
+  const outageRecentPoints = options.outage
+    ? interruptedTrail.recent
+        .filter(
+          (sample) =>
+            sample.timeS >= options.outage!.startS &&
+            sample.timeS <= options.outage!.endS,
+        )
+        .map((sample) => projectSample(sample, projection))
+    : [];
 
   drawSegmentPass(context, targetRing, false, PALE, 1.1, [6, 7], 0.34);
   drawSegmentPass(context, initialRing, false, CYAN, 0.8, [2, 6], 0.2);
-  drawSegmentPass(context, referencePoints, false, CYAN, 1.8, [], 0.36);
-  drawSegmentPass(context, interruptedPoints, false, AMBER, 1.8, [7, 5], 0.36);
-
-  if (options.outage) {
-    const outagePoints = interruptedSamples
-      .filter(
-        (sample) =>
-          sample.timeS >= options.outage!.startS &&
-          sample.timeS <= options.outage!.endS,
-      )
-      .map((sample) => projectSample(sample, projection));
-    drawSegmentPass(context, outagePoints, false, AMBER, 5, [], 0.12);
-  }
+  drawHistoryMarkers(context, referenceHistoryPoints, false, CYAN, "circle");
+  drawHistoryMarkers(
+    context,
+    interruptedHistoryPoints,
+    false,
+    AMBER,
+    "diamond",
+  );
+  drawRecentTrail(context, referenceRecentPoints, false, CYAN);
+  drawRecentTrail(context, interruptedRecentPoints, false, AMBER, [7, 5]);
+  drawSegmentPass(context, outageRecentPoints, false, AMBER, 5, [], 0.1);
 
   const earthScreenRadius = options.earthRadiusM * projection.scale;
   const atmosphere = context.createRadialGradient(
@@ -539,19 +715,17 @@ function drawScene(
 
   drawSegmentPass(context, targetRing, true, PALE, 1.35, [6, 7], 0.7);
   drawSegmentPass(context, initialRing, true, CYAN, 0.9, [2, 6], 0.34);
-  drawSegmentPass(context, referencePoints, true, CYAN, 2.1, [], 0.92);
-  drawSegmentPass(context, interruptedPoints, true, AMBER, 2.1, [7, 5], 0.92);
-
-  if (options.outage) {
-    const outagePoints = interruptedSamples
-      .filter(
-        (sample) =>
-          sample.timeS >= options.outage!.startS &&
-          sample.timeS <= options.outage!.endS,
-      )
-      .map((sample) => projectSample(sample, projection));
-    drawSegmentPass(context, outagePoints, true, AMBER, 5, [], 0.17);
-  }
+  drawHistoryMarkers(context, referenceHistoryPoints, true, CYAN, "circle");
+  drawHistoryMarkers(
+    context,
+    interruptedHistoryPoints,
+    true,
+    AMBER,
+    "diamond",
+  );
+  drawRecentTrail(context, referenceRecentPoints, true, CYAN);
+  drawRecentTrail(context, interruptedRecentPoints, true, AMBER, [7, 5]);
+  drawSegmentPass(context, outageRecentPoints, true, AMBER, 5, [], 0.16);
 
   drawSpacecraft(
     context,
@@ -559,8 +733,7 @@ function drawScene(
     projection,
     earthScreenRadius,
     CYAN,
-    "REF",
-    false,
+    "reference",
   );
   drawSpacecraft(
     context,
@@ -568,8 +741,7 @@ function drawScene(
     projection,
     earthScreenRadius,
     AMBER,
-    "INT",
-    true,
+    "interrupted",
   );
 
   context.save();
@@ -577,7 +749,7 @@ function drawScene(
   context.fillStyle = "rgba(218, 240, 247, 0.62)";
   context.textAlign = "right";
   context.fillText(
-    `TARGET +${Math.max(0, (options.targetRadiusM - options.earthRadiusM) / 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} KM`,
+    `TARGET ORBIT ${Math.max(0, (options.targetRadiusM - options.earthRadiusM) / 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} KM`,
     width - 16,
     height - 16,
   );
@@ -880,7 +1052,7 @@ export function OrbitScene({
             aria-label="Zoom out"
             onClick={() => adjustZoom(1 / 1.12)}
           >
-            −
+            -
           </button>
           <span className="orbit-scene__zoom-value" aria-hidden="true">
             {Math.round(camera.zoom * 100)}%
@@ -929,12 +1101,12 @@ export function OrbitScene({
             Target orbit
           </span>
         </div>
-        <span className="orbit-scene__model-badge">3D view · planar dynamics</span>
+        <span className="orbit-scene__model-badge">3D view | planar dynamics</span>
       </div>
 
       <div className="orbit-scene__footer">
         <p id={instructionsId} className="orbit-scene__instructions">
-          Drag to rotate · Scroll to zoom · Arrow keys rotate · +/− zoom · R reset · F follow
+          Drag to rotate | Scroll to zoom | Arrow keys rotate | +/- zoom | R reset | F follow
         </p>
         <p className="orbit-scene__summary">
           <span className="orbit-scene__state" aria-hidden="true">

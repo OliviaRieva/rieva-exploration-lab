@@ -1,5 +1,5 @@
 {
-  "name": "rievastra-orbital-mission-lab",
+  "name": "rievastra-exploration-systems-lab",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -10,16 +10,17 @@
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run test:physics && npm run build && node --test tests/rendered-html.test.mjs",
-    "test:physics": "node --experimental-strip-types --test tests/simulation.test.ts",
+    "test:physics": "node --experimental-strip-types --test tests/simulation.test.ts tests/surface-studio.test.ts",
     "validate:python": "python3 scripts/validate.py",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
-    "next": "16.2.6",
+    "next": "16.3.7",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
@@ -27,11 +28,12 @@
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "16.3.7",
     "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
