@@ -10,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
+import type { SpacecraftDesignId } from "../../lib/orbital/catalog";
 
 export interface OrbitSceneSample {
   timeS: number;
@@ -33,6 +34,16 @@ export interface OrbitSceneProps {
   currentTimeS: number;
   targetRadiusM: number;
   earthRadiusM?: number;
+  bodyName?: string;
+  bodyVisual?: {
+    light: string;
+    mid: string;
+    dark: string;
+    atmosphere: string;
+  };
+  solarDistanceAu?: number;
+  bodyRotationPeriodS?: number;
+  spacecraftDesign?: SpacecraftDesignId;
   outage?: OrbitSceneOutage;
   isPlaying?: boolean;
   className?: string;
@@ -75,6 +86,12 @@ const PALE = "#d9f4fb";
 const RECENT_TRAIL_DURATION_S = 6 * 60 * 60;
 const MAX_HISTORY_MARKERS = 720;
 const MAX_RECENT_TRAIL_POINTS = 420;
+const DEFAULT_BODY_VISUAL = {
+  light: "#74e4ff",
+  mid: "#247db8",
+  dark: "#09274c",
+  atmosphere: "rgba(94, 210, 255, 0.26)",
+};
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
@@ -439,6 +456,7 @@ function drawSpacecraft(
   earthScreenRadius: number,
   accent: string,
   variant: "reference" | "interrupted",
+  design: SpacecraftDesignId,
 ) {
   if (!sample) return;
   const point = projectSample(sample, projection);
@@ -485,6 +503,18 @@ function drawSpacecraft(
     context.closePath();
     context.fill();
     context.restore();
+
+    context.save();
+    context.fillStyle = accent;
+    context.globalAlpha = 0.38;
+    for (let particle = 0; particle < 6; particle += 1) {
+      const drift = ((sample.timeS * 0.08 + particle * 1.71) % 1) * 24;
+      const wobble = Math.sin(sample.timeS * 0.11 + particle * 2.3) * 3.3;
+      context.beginPath();
+      context.arc(-10 - drift, wobble, 0.55 + particle * 0.1, 0, TAU);
+      context.fill();
+    }
+    context.restore();
   }
 
   context.save();
@@ -503,31 +533,65 @@ function drawSpacecraft(
   context.strokeStyle = "rgba(3, 13, 23, 0.92)";
   context.lineWidth = 1.1;
 
-  context.beginPath();
-  context.moveTo(10, 0);
-  context.bezierCurveTo(7.3, -3.5, 2.5, -4.7, -5.8, -3.2);
-  context.lineTo(-7.2, -2.2);
-  context.lineTo(-7.2, 2.2);
-  context.lineTo(-5.8, 3.2);
-  context.bezierCurveTo(2.5, 4.7, 7.3, 3.5, 10, 0);
-  context.closePath();
-  context.fill();
-  context.stroke();
+  if (design === "cargo-spiraler") {
+    context.beginPath();
+    context.roundRect(-7, -4.5, 15, 9, 2.5);
+    context.fill();
+    context.stroke();
+    context.fillStyle = accent;
+    context.globalAlpha = 0.78;
+    context.fillRect(-4.5, -11, 9, 5);
+    context.fillRect(-4.5, 6, 9, 5);
+    context.globalAlpha = 1;
+    context.fillStyle = "#f8fcff";
+    context.beginPath();
+    context.moveTo(12, 0);
+    context.lineTo(7, -3.5);
+    context.lineTo(7, 3.5);
+    context.closePath();
+    context.fill();
+    context.stroke();
+  } else if (design === "ion-scout") {
+    context.beginPath();
+    context.moveTo(11.5, 0);
+    context.bezierCurveTo(5.5, -2.8, -1.5, -3.6, -8, -2.1);
+    context.lineTo(-8, 2.1);
+    context.bezierCurveTo(-1.5, 3.6, 5.5, 2.8, 11.5, 0);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    context.fillStyle = accent;
+    context.globalAlpha = 0.72;
+    context.fillRect(-5.5, -8.5, 6.5, 4.2);
+    context.fillRect(-5.5, 4.3, 6.5, 4.2);
+    context.globalAlpha = 1;
+  } else {
+    context.beginPath();
+    context.moveTo(10, 0);
+    context.bezierCurveTo(7.3, -3.5, 2.5, -4.7, -5.8, -3.2);
+    context.lineTo(-7.2, -2.2);
+    context.lineTo(-7.2, 2.2);
+    context.lineTo(-5.8, 3.2);
+    context.bezierCurveTo(2.5, 4.7, 7.3, 3.5, 10, 0);
+    context.closePath();
+    context.fill();
+    context.stroke();
 
-  context.beginPath();
-  context.moveTo(-3.4, -3.4);
-  context.lineTo(-7.5, -7.1);
-  context.lineTo(-7, -2.2);
-  context.closePath();
-  context.fill();
-  context.stroke();
-  context.beginPath();
-  context.moveTo(-3.4, 3.4);
-  context.lineTo(-7.5, 7.1);
-  context.lineTo(-7, 2.2);
-  context.closePath();
-  context.fill();
-  context.stroke();
+    context.beginPath();
+    context.moveTo(-3.4, -3.4);
+    context.lineTo(-7.5, -7.1);
+    context.lineTo(-7, -2.2);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    context.beginPath();
+    context.moveTo(-3.4, 3.4);
+    context.lineTo(-7.5, 7.1);
+    context.lineTo(-7, 2.2);
+    context.closePath();
+    context.fill();
+    context.stroke();
+  }
 
   context.shadowBlur = 0;
   context.fillStyle = "#071522";
@@ -559,6 +623,11 @@ function drawScene(
     maxRadius: number;
     camera: CameraState;
     follow: boolean;
+    bodyName: string;
+    bodyVisual: typeof DEFAULT_BODY_VISUAL;
+    solarDistanceAu: number;
+    bodyRotationPeriodS: number;
+    spacecraftDesign: SpacecraftDesignId;
   },
 ) {
   context.clearRect(0, 0, width, height);
@@ -587,6 +656,29 @@ function drawScene(
     context.fill();
   }
   context.restore();
+
+  const sunRadius = clamp(12 / options.solarDistanceAu, 4, 24);
+  const sunX = width * 0.86;
+  const sunY = height * 0.15;
+  const sunGlow = context.createRadialGradient(
+    sunX,
+    sunY,
+    0,
+    sunX,
+    sunY,
+    sunRadius * 4.2,
+  );
+  sunGlow.addColorStop(0, "rgba(255,255,238,0.98)");
+  sunGlow.addColorStop(0.18, "rgba(255,216,137,0.72)");
+  sunGlow.addColorStop(1, "rgba(255,181,96,0)");
+  context.fillStyle = sunGlow;
+  context.beginPath();
+  context.arc(sunX, sunY, sunRadius * 4.2, 0, TAU);
+  context.fill();
+  context.fillStyle = "#fff8dc";
+  context.beginPath();
+  context.arc(sunX, sunY, sunRadius, 0, TAU);
+  context.fill();
 
   const followed = options.interruptedCurrent ?? options.referenceCurrent;
   const followYaw =
@@ -666,9 +758,9 @@ function drawScene(
     projection.centerY,
     earthScreenRadius * 1.18,
   );
-  atmosphere.addColorStop(0, "rgba(45, 183, 220, 0.08)");
-  atmosphere.addColorStop(0.72, "rgba(67, 205, 235, 0.18)");
-  atmosphere.addColorStop(1, "rgba(67, 205, 235, 0)");
+  atmosphere.addColorStop(0, options.bodyVisual.atmosphere);
+  atmosphere.addColorStop(0.72, options.bodyVisual.atmosphere);
+  atmosphere.addColorStop(1, "rgba(255, 255, 255, 0)");
   context.fillStyle = atmosphere;
   context.beginPath();
   context.arc(
@@ -688,10 +780,23 @@ function drawScene(
     projection.centerY,
     earthScreenRadius,
   );
-  earth.addColorStop(0, "#1c758e");
-  earth.addColorStop(0.42, "#0d485f");
-  earth.addColorStop(0.76, "#082c42");
-  earth.addColorStop(1, "#03131f");
+  earth.addColorStop(0, options.bodyVisual.light);
+  earth.addColorStop(0.42, options.bodyVisual.mid);
+  earth.addColorStop(0.76, options.bodyVisual.dark);
+  earth.addColorStop(1, "#070713");
+  const saturnRing =
+    options.bodyName === "Saturn"
+      ? ringPoints(options.earthRadiusM * 1.72, projection, 220)
+      : [];
+  drawSegmentPass(
+    context,
+    saturnRing,
+    false,
+    "rgba(236, 214, 171, 0.42)",
+    4.5,
+    [],
+    0.72,
+  );
   context.fillStyle = earth;
   context.strokeStyle = "rgba(112, 222, 239, 0.62)";
   context.lineWidth = 1;
@@ -710,7 +815,16 @@ function drawScene(
     context,
     options.earthRadiusM,
     projection,
-    (options.currentTimeS / 86_164) * TAU,
+    (options.currentTimeS / options.bodyRotationPeriodS) * TAU,
+  );
+  drawSegmentPass(
+    context,
+    saturnRing,
+    true,
+    "rgba(255, 237, 192, 0.72)",
+    5.2,
+    [],
+    0.9,
   );
 
   drawSegmentPass(context, targetRing, true, PALE, 1.35, [6, 7], 0.7);
@@ -734,6 +848,7 @@ function drawScene(
     earthScreenRadius,
     CYAN,
     "reference",
+    options.spacecraftDesign,
   );
   drawSpacecraft(
     context,
@@ -742,6 +857,7 @@ function drawScene(
     earthScreenRadius,
     AMBER,
     "interrupted",
+    options.spacecraftDesign,
   );
 
   context.save();
@@ -749,7 +865,7 @@ function drawScene(
   context.fillStyle = "rgba(218, 240, 247, 0.62)";
   context.textAlign = "right";
   context.fillText(
-    `TARGET ORBIT ${Math.max(0, (options.targetRadiusM - options.earthRadiusM) / 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} KM`,
+    `${options.bodyName.toUpperCase()} TARGET ${Math.max(0, (options.targetRadiusM - options.earthRadiusM) / 1000).toLocaleString("en-US", { maximumFractionDigits: 0 })} KM`,
     width - 16,
     height - 16,
   );
@@ -776,10 +892,10 @@ function formatSceneSummary(
     `Mission day ${day.toFixed(day < 10 ? 2 : 1)}`,
     referenceAltitude === null
       ? null
-      : `reference altitude ${referenceAltitude.toLocaleString(undefined, { maximumFractionDigits: 0 })} kilometres`,
+      : `reference altitude ${referenceAltitude.toLocaleString("en-US", { maximumFractionDigits: 0 })} kilometres`,
     interruptedAltitude === null
       ? null
-      : `interrupted altitude ${interruptedAltitude.toLocaleString(undefined, { maximumFractionDigits: 0 })} kilometres`,
+      : `interrupted altitude ${interruptedAltitude.toLocaleString("en-US", { maximumFractionDigits: 0 })} kilometres`,
   ].filter(Boolean);
   return `${values.join(", ")}.`;
 }
@@ -790,6 +906,11 @@ export function OrbitScene({
   currentTimeS,
   targetRadiusM,
   earthRadiusM = DEFAULT_EARTH_RADIUS_M,
+  bodyName = "Earth",
+  bodyVisual = DEFAULT_BODY_VISUAL,
+  solarDistanceAu = 1,
+  bodyRotationPeriodS = 86_164.1,
+  spacecraftDesign = "hall-tug",
   outage,
   isPlaying = false,
   className = "",
@@ -881,12 +1002,22 @@ export function OrbitScene({
       maxRadius,
       camera,
       follow,
+      bodyName,
+      bodyVisual,
+      solarDistanceAu,
+      bodyRotationPeriodS,
+      spacecraftDesign,
     });
   }, [
     camera,
     currentTimeS,
     earthRadiusM,
     follow,
+    bodyName,
+    bodyVisual,
+    solarDistanceAu,
+    bodyRotationPeriodS,
+    spacecraftDesign,
     interrupted,
     interruptedCurrent,
     maxRadius,
@@ -1081,7 +1212,7 @@ export function OrbitScene({
           }}
           tabIndex={0}
           role="img"
-          aria-label={`${summary} Cyan is the reference trajectory; dashed amber is the interrupted trajectory. The view is visually three-dimensional while the propagated dynamics are planar.`}
+          aria-label={`${summary} ${bodyName} is the selected central body. Cyan is the reference trajectory; dashed amber is the interrupted trajectory. The view is visually three-dimensional while the propagated dynamics are planar.`}
           aria-describedby={instructionsId}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}

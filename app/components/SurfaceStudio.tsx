@@ -1,12 +1,23 @@
 "use client";
 
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
+  Component,
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type ErrorInfo,
+  type ReactNode,
+} from "react";
+import {
+  bootStyles,
   equipmentCatalog,
   palettes,
   pantsStyles,
   references,
   suitConcepts,
+  torsoStyles,
   type EvidenceLevel,
   type MissionId,
 } from "../../lib/surface-studio/catalog";
@@ -19,8 +30,14 @@ import {
   evaluateStudioConfiguration,
   missionLabels,
   normalizeStudioConfiguration,
+  vectorSupportedAccessories,
   type StudioConfiguration,
 } from "../../lib/surface-studio/rules";
+import type {
+  SurfaceSuitMotionMode,
+  SurfaceSuitTestMode,
+} from "./SurfaceSuitScene";
+import styles from "./SurfaceStudio.module.css";
 
 const SurfaceSuitScene = lazy(() =>
   import("./SurfaceSuitScene").then((module) => ({
@@ -29,6 +46,42 @@ const SurfaceSuitScene = lazy(() =>
 );
 
 const STORAGE_KEY = "rievastra-surface-studio-v1";
+
+interface SceneBoundaryProps {
+  children: ReactNode;
+  resetKey: string;
+}
+
+class SceneBoundary extends Component<SceneBoundaryProps, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Surface Studio 3D preview failed", error, info.componentStack);
+  }
+
+  componentDidUpdate(previous: SceneBoundaryProps) {
+    if (this.state.failed && previous.resetKey !== this.props.resetKey) {
+      this.setState({ failed: false });
+    }
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="surface-scene-activation" role="alert">
+          The 3D preview stopped unexpectedly. Change a view or configuration
+          option to retry; the configuration controls and technical information
+          remain available.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const evidenceLabels: Record<EvidenceLevel, string> = {
   "operational-heritage": "Operational heritage",
@@ -42,8 +95,65 @@ const missionForConcept: Record<StudioConfiguration["conceptId"], MissionId> = {
   vector: "earth",
 };
 
+const TEST_MODES: Array<{
+  id: SurfaceSuitTestMode;
+  label: string;
+  short: string;
+  partId: string;
+  requires?: keyof StudioConfiguration["accessories"];
+}> = [
+  { id: "none", label: "Idle", short: "No demonstration active", partId: "helmet-shell" },
+  { id: "uv", label: "Optical rays", short: "Visualize incidence and reflection only", partId: "sun-visor" },
+  { id: "dust", label: "Dust field", short: "Illustrative particle diversion", partId: "dust-module", requires: "dust" },
+  { id: "lighting", label: "Task light", short: "Visualize the lamp cone", partId: "comms-lighting" },
+  { id: "signal", label: "Antenna", short: "Illustrative RF pulse", partId: "cat-ear-pods", requires: "catEars" },
+  { id: "haptic", label: "Haptic cue", short: "Visualize a tactile pulse", partId: "haptic-module", requires: "haptics" },
+  { id: "support", label: "Staff contact", short: "Visualize a terrain contact point", partId: "walking-staff", requires: "staff" },
+];
+
+const ACCESSORY_FOR_PART: Readonly<
+  Partial<Record<string, keyof StudioConfiguration["accessories"]>>
+> = {
+  "cat-ear-pods": "catEars",
+  "walking-staff": "staff",
+  "assist-module": "assist",
+  "dust-module": "dust",
+  "haptic-module": "haptics",
+  "shoulder-camera": "shoulderCamera",
+  "tether-reel": "tetherReel",
+  "sample-kit": "sampleKit",
+};
+
+const VECTOR_SUPPORTED_ACCESSORY_SET = new Set(vectorSupportedAccessories);
+const VECTOR_UNAVAILABLE_TESTS = new Set<SurfaceSuitTestMode>([
+  "uv",
+  "dust",
+  "lighting",
+  "signal",
+]);
+const VECTOR_ABSENT_EQUIPMENT = new Set([
+  "helmet-shell",
+  "protective-visor",
+  "sun-visor",
+  "neck-interface",
+  "comms-lighting",
+  "cooling-garment",
+  "pressure-retention",
+  "restraint-layer",
+  "thermal-outer",
+  "torso-assembly",
+  "gloves",
+  "wrist-interfaces",
+  "life-support",
+  "crew-provisions",
+  "cat-ear-pods",
+  "dust-module",
+  "tether-reel",
+  "sample-kit",
+]);
+
 function formatNumber(value: number, digits = 1) {
-  return value.toLocaleString(undefined, { maximumFractionDigits: digits });
+  return value.toLocaleString("en-US", { maximumFractionDigits: digits });
 }
 
 function downloadConfiguration(config: StudioConfiguration) {
@@ -71,7 +181,8 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
   const [selectedPartId, setSelectedPartId] = useState("helmet-shell");
   const [exploded, setExploded] = useState(false);
   const [cutaway, setCutaway] = useState(false);
-  const [walking, setWalking] = useState(false);
+  const [motionMode, setMotionMode] = useState<SurfaceSuitMotionMode>("neutral");
+  const [testMode, setTestMode] = useState<SurfaceSuitTestMode>("none");
   const [notice, setNotice] = useState("");
   const [sceneActivated, setSceneActivated] = useState(active);
 
@@ -91,6 +202,20 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
     equipmentCatalog[0];
   const selectedSources = references.filter((reference) =>
     selectedItem.sourceIds.includes(reference.id),
+  );
+  const selectedAccessoryKey = ACCESSORY_FOR_PART[selectedItem.id];
+  const selectedAccessoryUnavailable = Boolean(
+    config.conceptId === "vector" &&
+      selectedAccessoryKey &&
+      !VECTOR_SUPPORTED_ACCESSORY_SET.has(selectedAccessoryKey),
+  );
+  const selectedPreviewOnly = Boolean(
+    selectedAccessoryKey &&
+      !selectedAccessoryUnavailable &&
+      !config.accessories[selectedAccessoryKey],
+  );
+  const selectedUnavailableForConcept = Boolean(
+    config.conceptId === "vector" && VECTOR_ABSENT_EQUIPMENT.has(selectedItem.id),
   );
   const compatibility = useMemo(
     () => evaluateStudioConfiguration(config),
@@ -117,11 +242,17 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
       paletteId: next.paletteId,
       mission: missionForConcept[conceptId],
       mode: conceptId === "vector" ? "assembly" : "mission",
-      helmetAttached: true,
+      helmetAttached: conceptId !== "vector",
     }));
+    setSelectedPartId(conceptId === "vector" ? "monitoring" : "helmet-shell");
+    setTestMode("none");
   };
 
   const toggleAccessory = (key: keyof StudioConfiguration["accessories"]) => {
+    const activeTest = TEST_MODES.find((test) => test.id === testMode);
+    if (config.accessories[key] && activeTest?.requires === key) {
+      setTestMode("none");
+    }
     updateConfig((current) => ({
       ...current,
       accessories: {
@@ -135,6 +266,9 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
       assist: "assist-module",
       dust: "dust-module",
       haptics: "haptic-module",
+      shoulderCamera: "shoulder-camera",
+      tetherReel: "tether-reel",
+      sampleKit: "sample-kit",
     };
     setSelectedPartId(partId[key]);
   };
@@ -156,6 +290,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
         return;
       }
       setConfig(decodeStudioConfiguration(saved));
+      setTestMode("none");
       setNotice("Saved configuration loaded.");
     } catch {
       setNotice("The saved configuration could not be read.");
@@ -167,7 +302,8 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
     setSelectedPartId("helmet-shell");
     setExploded(false);
     setCutaway(false);
-    setWalking(false);
+    setMotionMode("neutral");
+    setTestMode("none");
     setNotice("Studio reset to SELENE defaults.");
   };
 
@@ -281,16 +417,23 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
 
             <fieldset>
               <legend>Fit and outer tailoring</legend>
+              {config.conceptId === "vector" ? (
+                <p className="control-caveat">
+                  VECTOR has a fixed close-fitting research-garment silhouette.
+                  EVA pants, torso shells, and boot packages apply only to SELENE and AREO.
+                </p>
+              ) : null}
               <label className="surface-field">
                 <span>Body-proportion preset</span>
                 <select
                   value={config.bodyPreset}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const bodyPreset = event.currentTarget.value as StudioConfiguration["bodyPreset"];
                     updateConfig((current) => ({
                       ...current,
-                      bodyPreset: event.currentTarget.value as StudioConfiguration["bodyPreset"],
-                    }))
-                  }
+                      bodyPreset,
+                    }));
+                  }}
                 >
                   <option value="compact">Compact · assumed wearer 62 kg</option>
                   <option value="standard">Standard · assumed wearer 75 kg</option>
@@ -301,12 +444,14 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
                 <span>Lower-body outer style</span>
                 <select
                   value={config.pantsStyle}
-                  onChange={(event) =>
+                  disabled={config.conceptId === "vector"}
+                  onChange={(event) => {
+                    const pantsStyle = event.currentTarget.value as StudioConfiguration["pantsStyle"];
                     updateConfig((current) => ({
                       ...current,
-                      pantsStyle: event.currentTarget.value as StudioConfiguration["pantsStyle"],
-                    }))
-                  }
+                      pantsStyle,
+                    }));
+                  }}
                 >
                   {pantsStyles.map((style) => (
                     <option key={style.id} value={style.id}>{style.name}</option>
@@ -316,6 +461,42 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
               <p className="control-caveat">
                 {pantsStyles.find((style) => style.id === config.pantsStyle)?.note}
               </p>
+              <label className="surface-field">
+                <span>Torso outer tailoring</span>
+                <select
+                  value={config.torsoStyle}
+                  disabled={config.conceptId === "vector"}
+                  onChange={(event) => {
+                    const torsoStyle = event.currentTarget.value as StudioConfiguration["torsoStyle"];
+                    updateConfig((current) => ({ ...current, torsoStyle }));
+                  }}
+                >
+                  {torsoStyles.map((style) => (
+                    <option key={style.id} value={style.id}>{style.name}</option>
+                  ))}
+                </select>
+              </label>
+              <p className="control-caveat">
+                {torsoStyles.find((style) => style.id === config.torsoStyle)?.note}
+              </p>
+              <label className="surface-field">
+                <span>Replaceable boot package</span>
+                <select
+                  value={config.bootStyle}
+                  disabled={config.conceptId === "vector"}
+                  onChange={(event) => {
+                    const bootStyle = event.currentTarget.value as StudioConfiguration["bootStyle"];
+                    updateConfig((current) => ({ ...current, bootStyle }));
+                  }}
+                >
+                  {bootStyles.map((style) => (
+                    <option key={style.id} value={style.id}>{style.name}</option>
+                  ))}
+                </select>
+              </label>
+              <p className="control-caveat">
+                {bootStyles.find((style) => style.id === config.bootStyle)?.note}
+              </p>
             </fieldset>
 
             <fieldset>
@@ -324,27 +505,39 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
                 <button
                   type="button"
                   aria-pressed={config.mode === "mission"}
+                  disabled={config.conceptId === "vector"}
                   onClick={() => updateConfig((current) => ({ ...current, mode: "mission", helmetAttached: true }))}
-                >Mission mode</button>
+                >EVA mission mode</button>
                 <button
                   type="button"
                   aria-pressed={config.mode === "assembly"}
                   onClick={() => updateConfig((current) => ({ ...current, mode: "assembly" }))}
                 >Display / assembly</button>
               </div>
+              {config.conceptId === "vector" ? (
+                <p className="control-caveat">
+                  VECTOR remains in research-display mode because it has no sealed
+                  pressure architecture or portable life-support system.
+                </p>
+              ) : null}
               <label className="surface-switch">
                 <input
                   type="checkbox"
-                  checked={config.helmetAttached}
-                  disabled={config.mode === "mission"}
-                  onChange={(event) =>
+                  checked={config.conceptId === "vector" ? false : config.helmetAttached}
+                  disabled={config.mode === "mission" || config.conceptId === "vector"}
+                  onChange={(event) => {
+                    const helmetAttached = event.currentTarget.checked;
                     updateConfig((current) => ({
                       ...current,
-                      helmetAttached: event.currentTarget.checked,
-                    }))
-                  }
+                      helmetAttached,
+                    }));
+                  }}
                 />
-                <span>Helmet attached</span>
+                <span>
+                  {config.conceptId === "vector"
+                    ? "No pressure helmet — Earth research garment"
+                    : "Helmet attached"}
+                </span>
               </label>
               <label className="surface-switch">
                 <input type="checkbox" checked={exploded} onChange={(event) => setExploded(event.currentTarget.checked)} />
@@ -354,12 +547,22 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
                 <input type="checkbox" checked={cutaway} onChange={(event) => setCutaway(event.currentTarget.checked)} />
                 <span>Layered torso cutaway</span>
               </label>
-              <label className="surface-switch">
-                <input type="checkbox" checked={walking} onChange={(event) => setWalking(event.currentTarget.checked)} />
-                <span>Illustrative walking animation</span>
-              </label>
+              <span className={styles.controlLabel}>Illustrative motion</span>
+              <div className={styles.motionChoices} role="group" aria-label="Illustrative suit motion">
+                {(["neutral", "walk", "run", "jump"] as SurfaceSuitMotionMode[]).map((mode) => (
+                  <button
+                    type="button"
+                    key={mode}
+                    aria-pressed={motionMode === mode}
+                    onClick={() => setMotionMode(mode)}
+                  >
+                    {mode === "neutral" ? "Still" : mode[0].toUpperCase() + mode.slice(1)}
+                  </button>
+                ))}
+              </div>
               <p className="control-caveat">
-                The motion is a visual communication aid, not a biomechanical or pressurized-suit mobility model.
+                Walk, run, and jump are visual communication aids—not biomechanics,
+                mobility predictions, or evidence that a pressurized suit supports the motion.
               </p>
             </fieldset>
 
@@ -372,15 +575,28 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
                   ["assist", "Assistive lower-body module"],
                   ["dust", "Dust-mitigation gaiter module"],
                   ["haptics", "Haptic feedback module"],
+                  ["shoulderCamera", "Shoulder camera / task-light pod"],
+                  ["tetherReel", "Retractable auxiliary tether reel"],
+                  ["sampleKit", "Sealed sample and tool kit"],
                 ] as Array<[keyof StudioConfiguration["accessories"], string]>
               ).map(([key, label]) => (
                 <label className="surface-switch" key={key}>
                   <input
                     type="checkbox"
                     checked={config.accessories[key]}
+                    disabled={
+                      config.conceptId === "vector" &&
+                      !VECTOR_SUPPORTED_ACCESSORY_SET.has(key)
+                    }
                     onChange={() => toggleAccessory(key)}
                   />
-                  <span>{label}</span>
+                  <span>
+                    {label}
+                    {config.conceptId === "vector" &&
+                    !VECTOR_SUPPORTED_ACCESSORY_SET.has(key)
+                      ? " · EVA architecture only"
+                      : ""}
+                  </span>
                 </label>
               ))}
             </fieldset>
@@ -400,33 +616,98 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
                 <span>{concept.name}</span>
                 <strong>{palette.name}</strong>
               </div>
-              <p>Actual procedural 3D geometry · no external model asset</p>
+              <p>
+                {config.conceptId === "vector"
+                  ? "Open-head Earth garment · no pressure enclosure or PLSS"
+                  : "Procedural surface-EVA concept · pressure architecture shown"}
+              </p>
+            </div>
+            <div className={styles.testRoom} aria-labelledby="surface-test-room-title">
+              <div className={styles.testRoomHeading}>
+                <div>
+                  <span>Visual test room</span>
+                  <strong id="surface-test-room-title">Show a selected system in action.</strong>
+                </div>
+                <p>Illustrative effects only; no qualification or performance result is calculated.</p>
+              </div>
+              <div className={styles.testChoices} role="group" aria-label="Illustrative equipment tests">
+                {TEST_MODES.map((test) => {
+                  const unavailableForConcept =
+                    config.conceptId === "vector" && VECTOR_UNAVAILABLE_TESTS.has(test.id);
+                  const missingModule = Boolean(
+                    test.requires && !config.accessories[test.requires],
+                  );
+                  const unavailable = unavailableForConcept || missingModule;
+                  const unavailableReason = unavailableForConcept
+                    ? "Not present on the open-head VECTOR garment."
+                    : "Enable the matching accessory first.";
+                  return (
+                    <button
+                      type="button"
+                      key={test.id}
+                      aria-pressed={testMode === test.id}
+                      disabled={unavailable}
+                      title={unavailable ? unavailableReason : test.short}
+                      onClick={() => {
+                        setTestMode(test.id);
+                        setSelectedPartId(
+                          config.conceptId === "vector" && test.id === "none"
+                            ? "monitoring"
+                            : test.partId,
+                        );
+                      }}
+                    >
+                      <strong>{test.label}</strong>
+                      <small>
+                        {unavailable
+                          ? unavailableForConcept
+                            ? "Not on VECTOR"
+                            : "Add module first"
+                          : test.short}
+                      </small>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             {sceneActivated ? (
-              <Suspense
-                fallback={
-                  <div className="surface-scene-activation" role="status">
-                    Preparing the procedural suit studio…
-                  </div>
-                }
+              <SceneBoundary
+                resetKey={`${config.conceptId}-${config.paletteId}-${motionMode}-${testMode}`}
               >
-                <SurfaceSuitScene
-                  palette={palette}
-                  bodyPreset={config.bodyPreset}
-                  selectedPartId={selectedPartId}
-                  helmetAttached={config.helmetAttached}
-                  exploded={exploded}
-                  cutaway={cutaway}
-                  walking={walking}
-                  catEars={config.accessories.catEars}
-                  staff={config.accessories.staff}
-                  assistModule={config.accessories.assist}
-                  dustModule={config.accessories.dust}
-                  haptics={config.accessories.haptics}
-                  pantsStyle={config.pantsStyle}
-                  onSelectPart={setSelectedPartId}
-                />
-              </Suspense>
+                <Suspense
+                  fallback={
+                    <div className="surface-scene-activation" role="status">
+                      Preparing the procedural suit studio…
+                    </div>
+                  }
+                >
+                  <SurfaceSuitScene
+                    conceptId={config.conceptId}
+                    active={active}
+                    palette={palette}
+                    bodyPreset={config.bodyPreset}
+                    selectedPartId={selectedPartId}
+                    previewOnlySelectedPart={selectedPreviewOnly}
+                    helmetAttached={config.helmetAttached}
+                    exploded={exploded}
+                    cutaway={cutaway}
+                    motionMode={motionMode}
+                    testMode={testMode}
+                    catEars={config.accessories.catEars}
+                    staff={config.accessories.staff}
+                    assistModule={config.accessories.assist}
+                    dustModule={config.accessories.dust}
+                    haptics={config.accessories.haptics}
+                    shoulderCamera={config.accessories.shoulderCamera}
+                    tetherReel={config.accessories.tetherReel}
+                    sampleKit={config.accessories.sampleKit}
+                    pantsStyle={config.pantsStyle}
+                    torsoStyle={config.torsoStyle}
+                    bootStyle={config.bootStyle}
+                    onSelectPart={setSelectedPartId}
+                  />
+                </Suspense>
+              </SceneBoundary>
             ) : (
               <div className="surface-scene-activation" aria-hidden="true">
                 Interactive 3D studio loads when this laboratory opens.
@@ -438,32 +719,63 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
             </div>
           </div>
 
-          <aside className="equipment-inspector" aria-labelledby="inspector-title">
+          <aside className={`equipment-inspector ${styles.inspector}`} aria-labelledby="inspector-title">
             <div className="inspector-heading">
               <p className="surface-kicker">Equipment inspector</p>
-              <h3 id="inspector-title">Select a system.</h3>
+              <h3 id="inspector-title">{selectedItem.name}</h3>
             </div>
-            <div className="equipment-index" aria-label="Equipment parts">
-              {groups.map((group) => (
-                <div className="equipment-group" key={group}>
-                  <span>{group}</span>
-                  {equipmentCatalog
-                    .filter((item) => item.group === group)
-                    .map((item) => (
-                      <button
-                        type="button"
-                        key={item.id}
-                        aria-pressed={selectedItem.id === item.id}
-                        onClick={() => setSelectedPartId(item.id)}
-                      >
-                        <i className={`evidence-dot evidence-dot--${item.evidence}`} aria-hidden="true" />
-                        {item.name}
-                        {item.required ? <small>Required</small> : <small>Optional</small>}
-                      </button>
-                    ))}
-                </div>
-              ))}
-            </div>
+
+            <label className={`surface-field ${styles.inspectorPicker}`}>
+              <span>Inspect another component</span>
+              <select
+                value={selectedItem.id}
+                onChange={(event) => {
+                  const partId = event.currentTarget.value;
+                  if (equipmentCatalog.some((item) => item.id === partId)) {
+                    setSelectedPartId(partId);
+                  }
+                }}
+              >
+                {groups.map((group) => (
+                  <optgroup key={group} label={group}>
+                    {equipmentCatalog
+                      .filter((item) => item.group === group)
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                          {config.conceptId === "vector" &&
+                          VECTOR_ABSENT_EQUIPMENT.has(item.id)
+                            ? " · not fitted to VECTOR"
+                            : ""}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+            <p className={styles.selectionCue} aria-live="polite">
+              {selectedUnavailableForConcept
+                ? "Catalog inspection only: this EVA component is not fitted to VECTOR and is not highlighted on its open-head research garment."
+                : selectedPreviewOnly
+                ? "Preview only: this unfitted option appears translucent and pulsing on the suit; enable it under Mission accessories to add it."
+                : "This fitted component is outlined and softly pulsing on the 3D suit."}
+            </p>
+            {selectedAccessoryKey && !selectedAccessoryUnavailable ? (
+              <button
+                type="button"
+                className={styles.inspectorAccessoryAction}
+                aria-pressed={config.accessories[selectedAccessoryKey]}
+                onClick={() => toggleAccessory(selectedAccessoryKey)}
+              >
+                {config.accessories[selectedAccessoryKey]
+                  ? "Remove from this configuration"
+                  : "Add to this configuration"}
+              </button>
+            ) : selectedAccessoryUnavailable ? (
+              <p className="control-caveat">
+                This option depends on EVA architecture that VECTOR intentionally omits.
+              </p>
+            ) : null}
 
             <article className="equipment-card">
               <div className="equipment-card-topline">
@@ -495,7 +807,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
               </details>
               {selectedSources.length > 0 ? (
                 <div className="equipment-sources">
-                  <span>Primary sources</span>
+                  <span>Institutional and primary sources</span>
                   {selectedSources.map((source) => (
                     <a key={source.id} href={source.url} target="_blank" rel="noreferrer">
                       {source.organization} · {source.title}
@@ -506,6 +818,31 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
                 <p className="source-empty">Original proposal; no component-specific performance evidence is claimed.</p>
               )}
             </article>
+
+            <details className={styles.componentBrowser}>
+              <summary>Browse all {equipmentCatalog.length} systems</summary>
+              <div className="equipment-index" aria-label="Equipment parts">
+                {groups.map((group) => (
+                  <div className="equipment-group" key={group}>
+                    <span>{group}</span>
+                    {equipmentCatalog
+                      .filter((item) => item.group === group)
+                      .map((item) => (
+                        <button
+                          type="button"
+                          key={item.id}
+                          aria-pressed={selectedItem.id === item.id}
+                          onClick={() => setSelectedPartId(item.id)}
+                        >
+                          <i className={`evidence-dot evidence-dot--${item.evidence}`} aria-hidden="true" />
+                          {item.name}
+                          {item.required ? <small>Required</small> : <small>Optional</small>}
+                        </button>
+                      ))}
+                  </div>
+                ))}
+              </div>
+            </details>
           </aside>
         </div>
       </section>
@@ -532,7 +869,10 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
               <span>Environment</span>
               <select
                 value={config.mission}
-                onChange={(event) => updateConfig((current) => ({ ...current, mission: event.currentTarget.value as MissionId }))}
+                onChange={(event) => {
+                  const mission = event.currentTarget.value as MissionId;
+                  updateConfig((current) => ({ ...current, mission }));
+                }}
               >
                 {Object.entries(missionLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </select>
@@ -541,7 +881,10 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
               <span>Terrain</span>
               <select
                 value={config.terrain}
-                onChange={(event) => updateConfig((current) => ({ ...current, terrain: event.currentTarget.value as StudioConfiguration["terrain"] }))}
+                onChange={(event) => {
+                  const terrain = event.currentTarget.value as StudioConfiguration["terrain"];
+                  updateConfig((current) => ({ ...current, terrain }));
+                }}
               >
                 <option value="level">Prepared / level</option>
                 <option value="rocky">Rocky and irregular</option>
@@ -553,7 +896,10 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
               <span>Primary task</span>
               <select
                 value={config.task}
-                onChange={(event) => updateConfig((current) => ({ ...current, task: event.currentTarget.value as StudioConfiguration["task"] }))}
+                onChange={(event) => {
+                  const task = event.currentTarget.value as StudioConfiguration["task"];
+                  updateConfig((current) => ({ ...current, task }));
+                }}
               >
                 <option value="survey">Survey / traverse</option>
                 <option value="geology">Geology sampling</option>
@@ -565,7 +911,10 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
               <span>Lighting</span>
               <select
                 value={config.lighting}
-                onChange={(event) => updateConfig((current) => ({ ...current, lighting: event.currentTarget.value as StudioConfiguration["lighting"] }))}
+                onChange={(event) => {
+                  const lighting = event.currentTarget.value as StudioConfiguration["lighting"];
+                  updateConfig((current) => ({ ...current, lighting }));
+                }}
               >
                 <option value="sun">Direct sunlight</option>
                 <option value="shade">Predominantly shade</option>
@@ -580,7 +929,10 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
                 max={2000}
                 step={10}
                 value={config.accessoryBatteryWh}
-                onChange={(event) => updateConfig((current) => ({ ...current, accessoryBatteryWh: event.currentTarget.valueAsNumber }))}
+                onChange={(event) => {
+                  const accessoryBatteryWh = event.currentTarget.valueAsNumber;
+                  updateConfig((current) => ({ ...current, accessoryBatteryWh }));
+                }}
               />
             </label>
           </div>
@@ -686,7 +1038,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
               discussing more than 20 kPa for full MCP and a 24 kPa target; vacuum
               testing and full-body development remained future work.
             </p>
-            <a href="https://selfassemblylab.mit.edu/3d-knit-biosuit" target="_blank" rel="noreferrer">MIT project page</a>
+            <a href="https://architecture.mit.edu/sites/default/files/publications/3D_Knit_Spacesuit_Sleeve_2022.pdf" target="_blank" rel="noreferrer">2022 ACADIA paper</a>
           </details>
           <details>
             <summary>Electrodynamic dust shield on the Moon</summary>

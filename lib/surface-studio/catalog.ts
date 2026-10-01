@@ -77,6 +77,15 @@ export const references: ResearchReference[] = [
     note: "Research prototype exploring digitally knitted mechanical counter-pressure structures. It is not presented here as a qualified EVA suit.",
   },
   {
+    id: "mit-biosuit-paper",
+    organization: "MIT Self-Assembly Lab · ACADIA",
+    title: "3D Knit Spacesuit Sleeve",
+    url: "https://architecture.mit.edu/sites/default/files/publications/3D_Knit_Spacesuit_Sleeve_2022.pdf",
+    publicationDate: "2022",
+    verifiedDate: "30 September 2026",
+    note: "Primary conference paper for the knitted mechanical-counter-pressure sleeve prototype and its reported pressure measurements; it is not evidence for a full qualified suit.",
+  },
+  {
     id: "nasa-dust-shield",
     organization: "NASA",
     title: "NASA’s dust shield successfully repels lunar regolith on Moon",
@@ -126,7 +135,7 @@ export const references: ResearchReference[] = [
     organization: "NASA Innovative Advanced Concepts",
     title: "SmartSuit hybrid intelligent EVA concept",
     url: "https://www.nasa.gov/general/smartsuit-a-hybrid-intelligent-and-highly-mobile-eva-spacesuit-for-next-generation-exploration-missions/",
-    publicationDate: "2019 Phase I concept page",
+    publicationDate: "10 April 2019 · Phase I concept page",
     verifiedDate: "30 September 2026",
     note: "Early-stage mechanical-counter-pressure and soft-robotic concept; cited as low-maturity research, not established suit performance.",
   },
@@ -269,7 +278,7 @@ export const equipmentCatalog: EquipmentItem[] = [
     support: "Pressure restraint is a fundamental operational suit function.",
     drawbacks: "Load paths can restrict motion, create pressure points, and concentrate fatigue at stitching or joints.",
     integration: "Patterning, seams, bearings, bladder compatibility, and human fit must be validated together.",
-    sourceIds: ["nasa-suit-basics", "mit-biosuit"],
+    sourceIds: ["nasa-suit-basics", "mit-biosuit", "mit-biosuit-paper"],
   },
   {
     id: "thermal-outer",
@@ -484,6 +493,48 @@ export const equipmentCatalog: EquipmentItem[] = [
     integration: "Navigation cues require a trustworthy localization source; contact feedback cannot restore full natural touch.",
     sourceIds: [],
   },
+  {
+    id: "shoulder-camera",
+    name: "Shoulder documentation camera",
+    group: "Optional concept",
+    required: false,
+    evidence: "original-concept",
+    summary: "A low-profile, externally replaceable camera and task-light cluster for hands-free worksite documentation.",
+    problem: "Records procedures and terrain context when both hands are occupied and helmet movement makes a fixed view unreliable.",
+    materials: [{ name: "Radiation-tolerant imager candidate, optical window, sealed metal/composite housing", role: "Imaging, illumination, heat transfer, and impact protection", qualification }],
+    support: "Suit cameras and task lights have operational heritage; this shoulder placement and packaging are an original integration study.",
+    drawbacks: "Glare, occlusion, bandwidth, heat, privacy, contamination, snagging, and a misleading camera perspective require review.",
+    integration: "Must remain outside pressure layers, preserve shoulder reach and hatch clearance, and fail without obstructing emergency movement.",
+    sourceIds: ["nasa-suit-basics"],
+  },
+  {
+    id: "tether-reel",
+    name: "Retractable tether reel",
+    group: "Optional concept",
+    required: false,
+    evidence: "original-concept",
+    summary: "A glove-serviceable auxiliary reel for temporary tool control, shown in addition to fixed retention points.",
+    problem: "Manages a short tether while reducing loose loops during sampling or assembly work.",
+    materials: [{ name: "Qualified fibre tether, dust-tolerant reel, metallic/composite load frame", role: "Controlled extension, retraction, and limited load transfer", qualification }],
+    support: "Tool tethering is operational practice; this compact self-retracting planetary package is not validated.",
+    drawbacks: "Recoil, jams, dust ingress, cut hazards, entanglement, overload, and false confidence in an auxiliary attachment are concerns.",
+    integration: "Requires defined load limits, an emergency release, inspection access, and an independent approved primary retention method where needed.",
+    sourceIds: ["nasa-suit-basics"],
+  },
+  {
+    id: "sample-kit",
+    name: "Sealed sample and tool kit",
+    group: "Optional concept",
+    required: false,
+    evidence: "original-concept",
+    summary: "A removable thigh-mounted carrier with separate clean and used-tool volumes for geology tasks.",
+    problem: "Keeps small tools and specimens reachable while limiting uncontrolled dust transfer around pressure-critical joints.",
+    materials: [{ name: "Abrasion-resistant shell, dust-tolerant closures, removable liners", role: "Containment, organization, and replaceable contamination control", qualification }],
+    support: "External EVA tool carriage has heritage; this exact shaped thigh module and contamination scheme are conceptual.",
+    drawbacks: "Added leg inertia, kneeling interference, snagging, cross-contamination, closure failure, and asymmetrical loading must be tested.",
+    integration: "Mounts to noncritical external hard points and must release without damaging the pressure garment or blocking joint motion.",
+    sourceIds: ["nasa-suit-basics"],
+  },
 ];
 
 export const palettes: SuitPalette[] = [
@@ -559,4 +610,16 @@ export const pantsStyles = [
   { id: "contour", name: "Contour panel", note: "Smooth outer abrasion panels with minimal external pockets." },
   { id: "field", name: "Field cargo", note: "Dust-tolerant sample pockets and tether points outside pressure-critical seams." },
   { id: "mobility", name: "Mobility pleat", note: "Articulated protective overlays around hips and knees; pressure and restraint layers remain unchanged." },
+] as const;
+
+export const torsoStyles = [
+  { id: "streamline", name: "Streamline yoke", note: "Sculpted noncritical shoulder and chest panels with recessed service channels." },
+  { id: "field-rig", name: "Field rig", note: "External attachment rails and a protected chest service panel for tool-intensive work." },
+  { id: "adaptive", name: "Adaptive lattice", note: "A segmented outer-panel study that visualizes compliant zones; it does not change the pressure architecture." },
+] as const;
+
+export const bootStyles = [
+  { id: "traverse", name: "Traverse tread", note: "Balanced replaceable tread concept for prepared routes; performance is unverified." },
+  { id: "rock", name: "Rock-contact tread", note: "More pronounced edge lugs for irregular terrain, with extra dust trapping and snag risk." },
+  { id: "stability", name: "Broad stability sole", note: "A wider contact-foot study that may impede natural roll and tight clearances." },
 ] as const;

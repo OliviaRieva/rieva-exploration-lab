@@ -1,8 +1,10 @@
 /**
- * Framework-independent planar Earth-orbit simulation.
+ * Framework-independent planar central-body orbit simulation.
  *
  * All inputs and state variables use SI units. The numerical model is a
- * spherical, two-body Earth plus ideal, constant-power electric propulsion.
+ * spherical, isolated two-body gravity plus ideal, constant-power electric
+ * propulsion. Earth remains the validated default, while the same equations
+ * can use catalogued radius and GM values for other Solar System bodies.
  * Keeping this module free of browser and React APIs makes the same equations
  * usable by the UI, a Web Worker, and the automated validation suite.
  */
@@ -25,6 +27,8 @@ export const DEFAULT_SOLVER_SETTINGS: Readonly<SolverSettings> = Object.freeze({
 
 export const DEFAULT_MISSION_PARAMETERS: Readonly<MissionParameters> =
   Object.freeze({
+    centralBodyRadiusM: EARTH.meanRadiusM,
+    centralBodyGravitationalParameterM3S2: EARTH.gravitationalParameterM3S2,
     initialAltitudeM: 450_000,
     targetAltitudeM: 2_000_000,
     dryMassKg: 800,
@@ -43,13 +47,15 @@ export const PHASE = Object.freeze({
   TARGET_COAST: 2,
   PROPELLANT_DEPLETED: 3,
   COASTING: 4,
-  EARTH_IMPACT: 5,
+  BODY_IMPACT: 5,
 });
 
 export type PhaseCode = (typeof PHASE)[keyof typeof PHASE];
 export type ScenarioKind = "reference" | "interrupted";
 
 export interface MissionParameters {
+  centralBodyRadiusM: number;
+  centralBodyGravitationalParameterM3S2: number;
   initialAltitudeM: number;
   targetAltitudeM: number;
   dryMassKg: number;
@@ -97,7 +103,7 @@ export type SimulationEventType =
   | "interruption-end"
   | "target-thrust-cutoff"
   | "propellant-depleted"
-  | "earth-impact";
+  | "body-impact";
 
 export interface SimulationEvent {
   type: SimulationEventType;
@@ -128,7 +134,7 @@ export type TerminalReason =
   | "target-met"
   | "duration-limit"
   | "propellant-depleted"
-  | "earth-impact";
+  | "body-impact";
 
 export interface ScenarioSummary {
   scenario: ScenarioKind;
@@ -244,11 +250,35 @@ export function validateMissionParameters(
     "maxDurationS",
     parameters.maxDurationS,
   );
+  const centralBodyRadiusIsFinite = requireFinite(
+    "centralBodyRadiusM",
+    parameters.centralBodyRadiusM,
+  );
+  const centralBodyMuIsFinite = requireFinite(
+    "centralBodyGravitationalParameterM3S2",
+    parameters.centralBodyGravitationalParameterM3S2,
+  );
+
+  if (centralBodyRadiusIsFinite && parameters.centralBodyRadiusM <= 0) {
+    issues.push({
+      field: "centralBodyRadiusM",
+      message: "Central-body radius must be positive.",
+    });
+  }
+  if (
+    centralBodyMuIsFinite &&
+    parameters.centralBodyGravitationalParameterM3S2 <= 0
+  ) {
+    issues.push({
+      field: "centralBodyGravitationalParameterM3S2",
+      message: "Central-body gravitational parameter must be positive.",
+    });
+  }
 
   if (initialAltitudeIsFinite && parameters.initialAltitudeM <= 0) {
     issues.push({
       field: "initialAltitudeM",
-      message: "Initial altitude must be above the spherical Earth surface.",
+      message: "Initial altitude must be above the spherical central-body boundary.",
     });
   }
   if (
@@ -384,36 +414,46 @@ export function propulsionPerformance(
 export function initialCircularState(
   parameters: MissionParameters,
 ): DynamicState {
-  const radiusM = EARTH.meanRadiusM + parameters.initialAltitudeM;
+  const radiusM = parameters.centralBodyRadiusM + parameters.initialAltitudeM;
   return {
     xM: radiusM,
     yM: 0,
     vxMps: 0,
-    vyMps: Math.sqrt(EARTH.gravitationalParameterM3S2 / radiusM),
+    vyMps: Math.sqrt(
+      parameters.centralBodyGravitationalParameterM3S2 / radiusM,
+    ),
     propellantKg: parameters.propellantMassKg,
   };
 }
 
-export function orbitalElements(state: DynamicState): OrbitalElements {
+export function orbitalElements(
+  state: DynamicState,
+  body: Pick<
+    MissionParameters,
+    "centralBodyGravitationalParameterM3S2"
+  > = {
+    centralBodyGravitationalParameterM3S2:
+      EARTH.gravitationalParameterM3S2,
+  },
+): OrbitalElements {
   const { xM, yM, vxMps, vyMps } = state;
   const radiusM = Math.hypot(xM, yM);
   const speedSquared = vxMps * vxMps + vyMps * vyMps;
   const speedMps = Math.sqrt(speedSquared);
   const radialVelocityDot = xM * vxMps + yM * vyMps;
-  const specificEnergyJkg =
-    speedSquared / 2 - EARTH.gravitationalParameterM3S2 / radiusM;
+  const mu = body.centralBodyGravitationalParameterM3S2;
+  const specificEnergyJkg = speedSquared / 2 - mu / radiusM;
   const semimajorAxisM =
     Math.abs(specificEnergyJkg) < Number.EPSILON
       ? Number.POSITIVE_INFINITY
-      : -EARTH.gravitationalParameterM3S2 / (2 * specificEnergyJkg);
-  const common =
-    speedSquared - EARTH.gravitationalParameterM3S2 / radiusM;
+      : -mu / (2 * specificEnergyJkg);
+  const common = speedSquared - mu / radiusM;
   const eccentricityXM =
     (common * xM - radialVelocityDot * vxMps) /
-    EARTH.gravitationalParameterM3S2;
+    mu;
   const eccentricityYM =
     (common * yM - radialVelocityDot * vyMps) /
-    EARTH.gravitationalParameterM3S2;
+    mu;
 
   return {
     radiusM,
@@ -453,7 +493,8 @@ function derivative(
 ): StateDerivative {
   const radiusM = Math.hypot(state.xM, state.yM);
   const radiusCubed = radiusM * radiusM * radiusM;
-  const gravityScale = -EARTH.gravitationalParameterM3S2 / radiusCubed;
+  const gravityScale =
+    -parameters.centralBodyGravitationalParameterM3S2 / radiusCubed;
   const speedMps = Math.hypot(state.vxMps, state.vyMps);
   const totalMassKg =
     parameters.dryMassKg + Math.max(0, state.propellantKg);
@@ -608,13 +649,14 @@ function appendSample(
   series: ScenarioSeries,
   state: DynamicState,
   control: ControlState,
+  parameters: MissionParameters,
 ): void {
-  const elements = orbitalElements(state);
+  const elements = orbitalElements(state, parameters);
   series.xM.push(state.xM);
   series.yM.push(state.yM);
   series.vxMps.push(state.vxMps);
   series.vyMps.push(state.vyMps);
-  series.altitudeM.push(elements.radiusM - EARTH.meanRadiusM);
+  series.altitudeM.push(elements.radiusM - parameters.centralBodyRadiusM);
   series.speedMps.push(elements.speedMps);
   series.propellantKg.push(Math.max(0, state.propellantKg));
   series.thrustN.push(control.thrustN);
@@ -720,7 +762,7 @@ export function simulateScenario(
 
   const performance = propulsionPerformance(parameters);
   const targetSemimajorAxisM =
-    EARTH.meanRadiusM + parameters.targetAltitudeM;
+    parameters.centralBodyRadiusM + parameters.targetAltitudeM;
   const outageStartS = parameters.interruptionStartS;
   const outageEndS = outageStartS + parameters.interruptionDurationS;
   const events: SimulationEvent[] = [];
@@ -767,7 +809,7 @@ export function simulateScenario(
 
   const considerSuccess = (): void => {
     if (targetMetAtS !== null) return;
-    const elements = orbitalElements(state);
+    const elements = orbitalElements(state, parameters);
     if (
       meetsTargetCriteria(
         elements.semimajorAxisM,
@@ -840,7 +882,7 @@ export function simulateScenario(
         break;
       }
 
-      const beforeElements = orbitalElements(state);
+      const beforeElements = orbitalElements(state, parameters);
       const candidate = rk4Step(
         state,
         stepS,
@@ -850,8 +892,9 @@ export function simulateScenario(
       );
 
       if (
-        beforeElements.radiusM > EARTH.meanRadiusM &&
-        orbitalElements(candidate).radiusM <= EARTH.meanRadiusM
+        beforeElements.radiusM > parameters.centralBodyRadiusM &&
+        orbitalElements(candidate, parameters).radiusM <=
+          parameters.centralBodyRadiusM
       ) {
         const impact = refineMonotonicEvent(
           state,
@@ -860,17 +903,19 @@ export function simulateScenario(
           parameters,
           performance,
           settings.eventTimeToleranceS,
-          (trial) => orbitalElements(trial).radiusM <= EARTH.meanRadiusM,
+          (trial) =>
+            orbitalElements(trial, parameters).radiusM <=
+            parameters.centralBodyRadiusM,
         );
         state = impact.state;
         currentTimeS += impact.elapsedS;
         impacted = true;
         impactAtS = currentTimeS;
-        events.push({ type: "earth-impact", timeS: currentTimeS });
+        events.push({ type: "body-impact", timeS: currentTimeS });
         break;
       }
 
-      const candidateElements = orbitalElements(candidate);
+      const candidateElements = orbitalElements(candidate, parameters);
       if (
         control.thrustN > 0 &&
         !targetCutoff &&
@@ -885,7 +930,8 @@ export function simulateScenario(
           performance,
           settings.eventTimeToleranceS,
           (trial) =>
-            orbitalElements(trial).semimajorAxisM >= targetSemimajorAxisM,
+            orbitalElements(trial, parameters).semimajorAxisM >=
+            targetSemimajorAxisM,
         );
         state = crossing.state;
         if (state.propellantKg < MASS_EPSILON_KG) state.propellantKg = 0;
@@ -928,6 +974,7 @@ export function simulateScenario(
         performance,
         parameters,
       ),
+      parameters,
     );
 
     const progress =
@@ -939,10 +986,10 @@ export function simulateScenario(
   }
 
   considerSuccess();
-  const finalElements = orbitalElements(state);
+  const finalElements = orbitalElements(state, parameters);
   const finalPropellantKg = Math.max(0, state.propellantKg);
   const terminalReason: TerminalReason = impacted
-    ? "earth-impact"
+    ? "body-impact"
     : targetMetAtS !== null
       ? "target-met"
       : propellantDepletionRecorded

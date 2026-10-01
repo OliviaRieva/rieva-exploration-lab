@@ -14,8 +14,10 @@ import {
   propulsionPerformance,
   simulateMissionComparison,
   simulateScenario,
+  validateMissionParameters,
   type MissionParameters,
 } from "../lib/simulation/index.ts";
+import { centralBodies } from "../lib/orbital/catalog.ts";
 
 function mission(
   overrides: Partial<MissionParameters> = {},
@@ -26,6 +28,14 @@ function mission(
 function relativeError(actual: number, expected: number): number {
   return Math.abs((actual - expected) / expected);
 }
+
+test("all catalog body defaults fit the published altitude controls", () => {
+  for (const body of centralBodies) {
+    assert.ok(body.initialAltitudeKm >= 1 && body.initialAltitudeKm <= 100_000);
+    assert.ok(body.targetAltitudeKm >= 130 && body.targetAltitudeKm <= 100_000);
+    assert.ok(body.targetAltitudeKm > body.initialAltitudeKm);
+  }
+});
 
 test("an unpowered circular orbit remains circular and conserves invariants", () => {
   const parameters = mission({
@@ -92,6 +102,48 @@ test("an unpowered circular orbit remains circular and conserves invariants", ()
   assert.ok(
     maximumAngularMomentumRelativeError < 5e-8,
     `maximum relative angular momentum error was ${maximumAngularMomentumRelativeError}`,
+  );
+});
+
+test("central-body parameters change circular speed without changing the equations", () => {
+  const lunar = mission({
+    centralBodyRadiusM: 1_737_400,
+    centralBodyGravitationalParameterM3S2: 4.902_800_118e12,
+    initialAltitudeM: 100_000,
+    targetAltitudeM: 500_000,
+    powerW: 0,
+    interruptionDurationS: 0,
+    maxDurationS: 7_200,
+  });
+  const initial = simulateScenario(lunar, "reference", [0, 7_200], {
+    internalStepS: 10,
+    outputStepS: 7_200,
+  });
+  const expectedSpeed = Math.sqrt(
+    lunar.centralBodyGravitationalParameterM3S2 /
+      (lunar.centralBodyRadiusM + lunar.initialAltitudeM),
+  );
+
+  assert.ok(Math.abs(initial.series.speedMps[0] - expectedSpeed) < 1e-9);
+  assert.ok(Math.abs(initial.series.altitudeM[0] - 100_000) < 1e-9);
+  assert.ok(
+    Math.abs(initial.series.altitudeM.at(-1)! - 100_000) < 1,
+    "the unpowered lunar orbit should remain circular over the short check",
+  );
+});
+
+test("invalid central-body constants are rejected before propagation", () => {
+  const invalid = mission({
+    centralBodyRadiusM: Number.NaN,
+    centralBodyGravitationalParameterM3S2: 0,
+  });
+  const issues = validateMissionParameters(invalid);
+  assert.ok(issues.some((issue) => issue.field === "centralBodyRadiusM"));
+  assert.ok(
+    issues.some(
+      (issue) =>
+        issue.field === "centralBodyGravitationalParameterM3S2",
+    ),
   );
 });
 

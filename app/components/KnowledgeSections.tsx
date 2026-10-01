@@ -189,7 +189,11 @@ export function PhysicsAndValidation() {
             </div>
             <div className="equation-row">
               <span className="equation">vₑ = Iₛₚ g₀</span>
-              <p>Exhaust velocity from specific impulse and exact standard gravity.</p>
+              <p>
+                Exhaust velocity uses the exact standard reference acceleration
+                g₀ = 9.80665 m/s² that defines specific impulse—not the selected
+                world’s local surface gravity.
+              </p>
             </div>
             <div className="equation-row">
               <span className="equation">T = 2ηP / vₑ</span>
@@ -229,7 +233,7 @@ export function PhysicsAndValidation() {
         <div className="limitations-callout">
           <span className="mono-label">Known omissions</span>
           <p>
-            No atmosphere or drag, Earth oblateness (J₂), third-body gravity, eclipses, radiation, thermal limits, power degradation, throttle maps, plume interactions, attitude dynamics, or finite steering response. Earth is a sphere with mean radius 6,371 km.
+            Every selectable world is treated as an isolated sphere. The model omits atmosphere and drag, oblateness (including J₂), rings and moons, third-body gravity from the Sun or planets, eclipses, radiation, thermal limits, power degradation, throttle maps, plume interactions, attitude dynamics, and finite steering response. Giant-planet “altitude” is measured from a reference radius rather than solid ground.
           </p>
         </div>
       </section>
@@ -240,7 +244,7 @@ export function PhysicsAndValidation() {
             <p className="eyebrow">Numerical validation</p>
             <h2 id="validation-title">Measured checks, not decorative confidence.</h2>
             <p>
-              Results below were produced on 29 September 2026 by the bundled, independent standard-library Python suite—not copied from the browser engine.
+              Results below were produced on 30 September 2026 by the bundled, independent standard-library Python suite—not copied from the browser engine. The conservation benchmark remains the Earth baseline; automated browser-model tests separately exercise the generalized lunar case.
             </p>
           </div>
           <span className="validation-pass">6 / 6 PASS</span>
@@ -287,9 +291,9 @@ export function PhysicsAndValidation() {
             <span>NASA/JPL</span>
             <strong>Fundamentals of Electric Propulsion ↗</strong>
           </a>
-          <a href="https://cddis.nasa.gov/926/egm96/doc/S11.HTML" target="_blank" rel="noreferrer">
-            <span>NASA EGM96</span>
-            <strong>Earth gravitational parameter ↗</strong>
+          <a href="https://ssd.jpl.nasa.gov/planets/phys_par.html" target="_blank" rel="noreferrer">
+            <span>NASA/JPL SSD</span>
+            <strong>Planetary physical parameters ↗</strong>
           </a>
           <a href="https://ntrs.nasa.gov/api/citations/20220007037/downloads/SP2022_438_CASSADY.pdf" target="_blank" rel="noreferrer">
             <span>NASA NTRS</span>

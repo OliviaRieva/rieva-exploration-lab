@@ -1,6 +1,6 @@
 # Rievastra — Exploration Systems Laboratory
 
-Rievastra combines two persistent browser laboratories. **Orbital Flight** is an electric-propulsion mission study that propagates an uninterrupted reference and an otherwise identical mission with one engine interruption. **Surface Studio — Missionwear** is an independent research-informed aerospace design exhibition with a procedural 3D suit configurator, materials inspector, and transparent mission rules. Switching laboratories preserves each section’s React state.
+Rievastra combines three persistent browser laboratories behind an animated home portal. **Orbital Flight** is an electric-propulsion mission study that propagates an uninterrupted reference and an otherwise identical mission with one engine interruption. **Black Hole Laboratory** explores calculated Kerr boundaries and transparent orbit diagnostics around rotating black holes. **Surface Studio — Missionwear** is an independent research-informed aerospace design exhibition with a procedural 3D suit configurator, materials inspector, environmental test room, and transparent mission rules. Switching laboratories preserves each laboratory’s React state.
 
 The working name combines **Rieva** and *astra*. All public brand text is centralized in [`lib/site-config.ts`](lib/site-config.ts), so the site can be renamed in one edit.
 
@@ -18,7 +18,7 @@ Open the local address printed by the development server (normally `http://local
 Useful commands:
 
 ```bash
-npm run test:physics      # nine orbital checks + seven Surface Studio checks
+npm run test:physics      # orbital, Surface Studio, and black-hole model checks
 npm run validate:python   # independent standard-library Python validation
 npm run build             # production Cloudflare-compatible build
 npm test                  # physics tests + build + rendered-page checks
@@ -27,11 +27,20 @@ npm run lint
 
 ## What the application includes
 
+### Home portal
+
+- Three animated, keyboard-accessible circular shortcuts for Orbital Flight, Black Hole Laboratory, and Surface Studio.
+- Reduced-motion alternatives and laboratory-specific transition animation.
+- A shared pearl/chrome theme with restrained blue, violet, pink, cyan, and gold light.
+
+### Orbital Flight
+
 - Editable orbit, spacecraft, propulsion, interruption, and mission-duration inputs.
-- Three mission presets plus baseline, applied-technology, and research-envelope scenarios.
+- Earth, Moon, Mercury, Venus, Mars, Jupiter, Saturn, Uranus, and Neptune central-body studies using catalogued radius and gravitational-parameter values.
+- Multiple electric-spacecraft silhouettes and mission presets, plus baseline, applied-technology, and research-envelope scenarios.
 - A Web Worker that propagates the reference and interrupted cases without tying up the interface.
 - Separate Run, Play, Pause, timeline Reset, scrubber, jump-to-outage, and playback-speed controls.
-- An interactive projected-3D Earth/orbit scene with mouse, touch, wheel, and keyboard camera controls.
+- An interactive projected-3D body/orbit scene with mouse, touch, wheel, and keyboard camera controls, animated spacecraft, electric-plume visualizations, stars, and Sun context.
 - Live altitude, speed, propellant, thrust, semimajor axis, eccentricity, and target-gate status.
 - Altitude, propellant, and thrust charts on one common time axis with interruption shading.
 - A result narrative generated from the current numerical output, not canned copy.
@@ -39,23 +48,33 @@ npm run lint
 - Explanations, assumptions, primary references, and measured validation results.
 - Responsive layouts, labelled controls, visible focus states, reduced-motion support, and textual chart/scene descriptions.
 
+### Black Hole Laboratory
+
+- A real interactive Three.js scene of an ideal rotating Kerr black hole with camera presets, mouse/touch rotation, zoom, animation, disk and jet context, and separate horizon/ergosphere/orbit guides.
+- Editable mass, dimensionless spin, coordinate radius, orbit direction, probe type, and motion speed, with stellar-scale, Sagittarius A*, and M87* presets.
+- Calculated gravitational radius, outer event horizon, equatorial static limit, prograde/retrograde photon orbit, and ISCO locations.
+- Transparent rule-based diagnoses for stable circular orbit, unstable/capture regions, approximate tidal-gradient scale, and explicit statements of what is only illustrative.
+- Primary references and a 2024 EHT research note without claiming the scene is a ray trace, a full Kerr geodesic integration, or a survival prediction.
+
 ### Surface Studio — Missionwear
 
-- Three original concepts: lunar **SELENE**, Mars **AREO**, and Earth-training **VECTOR**.
+- Three visibly distinct original concepts: lunar **SELENE** with faceted dust guards and shadow-work lighting, Mars **AREO** with asymmetric geology and abrasion panels, and the lighter open-head Earth-training **VECTOR** loading garment. VECTOR deliberately omits EVA pressure hardware.
 - A real Three.js model built from named procedural meshes—helmet, visors, neck ring, torso layers, joints, gloves, boots, backpack, staff, cat-ear pods, dust module, haptics, and assistive structures.
-- Mouse/touch orbit controls, wheel zoom, camera presets, clickable parts, exploded assembly, layered cutaway, detachable helmet in assembly mode, body-proportion presets, and an explicitly illustrative walk cycle.
+- Mouse/touch orbit controls, wheel zoom, camera presets, clickable parts, exploded assembly, layered cutaway, detachable helmet in assembly mode, body-proportion presets, and explicitly illustrative walking, running, and jumping.
 - Pearl/silver, white/champagne, and obsidian/gold palettes with visible thermal and optical caveats.
 - Editable outer tailoring and mission accessories without implying that pockets or pants replace pressure architecture.
 - Local save/load, validated JSON export, and canvas PNG export. No account or backend is involved.
 - Moon, Mars, Earth-training, and hypothetical higher-gravity rules using stated mass, gravity, and accessory-power assumptions.
 - Compatibility language limited to required items, conceptual combinations, and named unresolved conflicts—never a safety or certification score.
 - An editable equipment/materials/reference catalog with operational-heritage, demonstrated-research, and original-concept labels.
+- A test room that visualizes visor ray handling, dust mitigation, lights, antenna signals, haptic feedback, and walking-staff contact while keeping each effect’s evidence limits visible.
+- Configurable torso tailoring, boot packages, shoulder camera, tether reel, sample kit, and pulsing/ghosted part inspection with one-click accessory fitting.
 
 The suit model is an educational integration concept, not qualified hardware. Habitat clothing, launch/entry garments, and surface EVA equipment are explicitly distinguished. A cooling or compression garment alone is not vacuum protection.
 
 ## Physics model
 
-The state is planar and Earth-centered. SI units are used internally.
+The orbital state is planar and centered on the selected spherical body. SI units are used internally. Earth is the independently validated baseline; other Solar System destinations use the same intentionally simplified two-body equations with catalogued body constants.
 
 ```text
 r̈ = −μr / |r|³ + (T/m) ûv
@@ -64,7 +83,7 @@ T = 2ηP / ve
 ṁ = −T / ve
 ```
 
-Constants:
+Baseline constants:
 
 - Earth gravitational parameter `μ = 3.986004418 × 10¹⁴ m³/s²`.
 - Spherical volumetric mean Earth radius `R = 6,371,000 m`.
@@ -94,13 +113,13 @@ Crossing the target altitude alone is not called circular-orbit insertion. A mis
 
 ### Scope and limitations
 
-This is an educational first-order mission study, not a flight design or hardware qualification tool. It assumes constant propulsion efficiency and excludes atmospheric drag, Earth oblateness/J₂, third bodies, eclipses, radiation, thermal limits, solar-array degradation, power-processing losses beyond the single efficiency term, throttle maps, attitude dynamics, finite steering response, navigation uncertainty, plume interactions, and hardware lifetime constraints.
+This is an educational first-order mission study, not a flight design or hardware qualification tool. It assumes constant propulsion efficiency and excludes atmospheric drag, body nonsphericity and harmonics, third bodies, rings, eclipses, radiation, thermal limits, solar-array degradation, power-processing losses beyond the single efficiency term, throttle maps, attitude dynamics, finite steering response, navigation uncertainty, plume interactions, and hardware lifetime constraints. Giant-planet altitude is measured from a reference radius rather than a solid surface.
 
 The technology presets only change parameters represented by this model. The research envelope is explicitly hypothetical. Iodine and atmosphere-breathing propulsion are discussed as model boundaries; the site does not pretend its simple dynamics can evaluate their materials, plasma, intake, or drag physics.
 
 ## Validation
 
-`scripts/validate.py` is independent of the TypeScript implementation and uses only the Python standard library. On 29 September 2026 it measured:
+`scripts/validate.py` is independent of the TypeScript implementation and uses only the Python standard library. On 30 September 2026 it measured:
 
 | Check | Measured | Acceptance |
 |---|---:|---:|
@@ -120,16 +139,22 @@ The TypeScript suite adds common-axis identity, zero-duration interruption equiv
 app/
   components/
     RievastraApp.tsx      state-preserving laboratory navigation
+    HomePortal.tsx         animated three-laboratory homepage
     SimulatorApp.tsx       complete mission console and playback state
     OrbitScene.tsx         interactive projected-3D Canvas scene
     MissionCharts.tsx      accessible computed SVG charts
     KnowledgeSections.tsx  technology, physics, validation, references
     SurfaceStudio.tsx      collection, controls, inspector, rules, research
     SurfaceSuitScene.tsx   named procedural Three.js suit meshes
+    BlackHoleLab.tsx       Kerr controls, diagnosis, equations, references
+    BlackHoleScene.tsx     interactive Three.js extreme-gravity scene
   workers/
     mission.worker.ts      worker protocol and simulation execution
 lib/
   simulation/index.ts      framework-independent physics and RK4 solver
+  orbital/catalog.ts       central bodies, spacecraft, research destinations
+  black-hole/model.ts      Kerr radii and orbit/tidal diagnostics
+  black-hole/catalog.ts    presets and primary references
   surface-studio/catalog.ts structured equipment, materials, palettes, sources
   surface-studio/rules.ts  persistence validation, mass/weight, mission rules
   site-config.ts           single-source brand configuration
@@ -138,6 +163,7 @@ scripts/
 tests/
   simulation.test.ts       numerical and event checks
   surface-studio.test.ts   persistence, requirements, mass and power checks
+  black-hole.test.ts       Kerr boundary and diagnostic checks
   rendered-html.test.mjs   production-render checks
 ```
 

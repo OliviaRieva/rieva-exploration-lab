@@ -4,6 +4,8 @@ export type TerrainId = "level" | "rocky" | "slope" | "dusty";
 export type TaskId = "survey" | "geology" | "construction" | "mobility";
 export type LightingId = "sun" | "shade" | "mixed";
 export type BodyPresetId = "compact" | "standard" | "tall";
+export type TorsoStyleId = "streamline" | "field-rig" | "adaptive";
+export type BootStyleId = "traverse" | "rock" | "stability";
 
 export interface StudioAccessories {
   catEars: boolean;
@@ -11,13 +13,29 @@ export interface StudioAccessories {
   assist: boolean;
   dust: boolean;
   haptics: boolean;
+  shoulderCamera: boolean;
+  tetherReel: boolean;
+  sampleKit: boolean;
 }
+
+export const vectorSupportedAccessories: ReadonlyArray<keyof StudioAccessories> = [
+  "staff",
+  "assist",
+  "haptics",
+  "shoulderCamera",
+];
+
+const vectorSupportedAccessorySet = new Set<keyof StudioAccessories>(
+  vectorSupportedAccessories,
+);
 
 export interface StudioConfiguration {
   version: 1;
   conceptId: "selene" | "areo" | "vector";
   paletteId: "pearl" | "champagne" | "obsidian";
   pantsStyle: "contour" | "field" | "mobility";
+  torsoStyle: TorsoStyleId;
+  bootStyle: BootStyleId;
   bodyPreset: BodyPresetId;
   mission: MissionId;
   terrain: TerrainId;
@@ -49,6 +67,8 @@ export const DEFAULT_STUDIO_CONFIGURATION: StudioConfiguration = {
   conceptId: "selene",
   paletteId: "pearl",
   pantsStyle: "contour",
+  torsoStyle: "streamline",
+  bootStyle: "traverse",
   bodyPreset: "standard",
   mission: "moon",
   terrain: "rocky",
@@ -62,6 +82,9 @@ export const DEFAULT_STUDIO_CONFIGURATION: StudioConfiguration = {
     assist: false,
     dust: true,
     haptics: false,
+    shoulderCamera: false,
+    tetherReel: true,
+    sampleKit: true,
   },
   accessoryBatteryWh: 180,
 };
@@ -92,6 +115,9 @@ const accessoryAssumptions = {
   assist: { massKg: 6.5, powerW: 80 },
   dust: { massKg: 0.8, powerW: 12 },
   haptics: { massKg: 0.5, powerW: 5 },
+  shoulderCamera: { massKg: 0.9, powerW: 14 },
+  tetherReel: { massKg: 1.2, powerW: 0 },
+  sampleKit: { massKg: 2.4, powerW: 0 },
 } as const;
 
 export { accessoryAssumptions, bodyMassKg };
@@ -108,6 +134,8 @@ export function normalizeStudioConfiguration(
   const conceptIds = new Set(["selene", "areo", "vector"]);
   const paletteIds = new Set(["pearl", "champagne", "obsidian"]);
   const pantsIds = new Set(["contour", "field", "mobility"]);
+  const torsoIds = new Set(["streamline", "field-rig", "adaptive"]);
+  const bootIds = new Set(["traverse", "rock", "stability"]);
   const bodyIds = new Set(["compact", "standard", "tall"]);
   const missionIds = new Set(["moon", "mars", "earth", "high-gravity"]);
   const terrainIds = new Set(["level", "rocky", "slope", "dusty"]);
@@ -115,26 +143,58 @@ export function normalizeStudioConfiguration(
   const lightIds = new Set(["sun", "shade", "mixed"]);
   const base = DEFAULT_STUDIO_CONFIGURATION;
   const accessories = candidate.accessories ?? base.accessories;
+  const conceptId = conceptIds.has(candidate.conceptId ?? "")
+    ? candidate.conceptId!
+    : base.conceptId;
+  const normalizedAccessories: StudioAccessories = {
+    catEars: Boolean(accessories.catEars),
+    staff: Boolean(accessories.staff),
+    assist: Boolean(accessories.assist),
+    dust: Boolean(accessories.dust),
+    haptics: Boolean(accessories.haptics),
+    shoulderCamera: Boolean(accessories.shoulderCamera),
+    tetherReel:
+      typeof accessories.tetherReel === "boolean"
+        ? accessories.tetherReel
+        : base.accessories.tetherReel,
+    sampleKit:
+      typeof accessories.sampleKit === "boolean"
+        ? accessories.sampleKit
+        : base.accessories.sampleKit,
+  };
+  if (conceptId === "vector") {
+    (Object.keys(normalizedAccessories) as Array<keyof StudioAccessories>).forEach(
+      (key) => {
+        if (!vectorSupportedAccessorySet.has(key)) normalizedAccessories[key] = false;
+      },
+    );
+  }
 
   return {
     version: 1,
-    conceptId: conceptIds.has(candidate.conceptId ?? "") ? candidate.conceptId! : base.conceptId,
+    conceptId,
     paletteId: paletteIds.has(candidate.paletteId ?? "") ? candidate.paletteId! : base.paletteId,
     pantsStyle: pantsIds.has(candidate.pantsStyle ?? "") ? candidate.pantsStyle! : base.pantsStyle,
+    torsoStyle: torsoIds.has(candidate.torsoStyle ?? "") ? candidate.torsoStyle! : base.torsoStyle,
+    bootStyle: bootIds.has(candidate.bootStyle ?? "") ? candidate.bootStyle! : base.bootStyle,
     bodyPreset: bodyIds.has(candidate.bodyPreset ?? "") ? candidate.bodyPreset! : base.bodyPreset,
     mission: missionIds.has(candidate.mission ?? "") ? candidate.mission! : base.mission,
     terrain: terrainIds.has(candidate.terrain ?? "") ? candidate.terrain! : base.terrain,
     task: taskIds.has(candidate.task ?? "") ? candidate.task! : base.task,
     lighting: lightIds.has(candidate.lighting ?? "") ? candidate.lighting! : base.lighting,
-    mode: candidate.mode === "assembly" ? "assembly" : "mission",
-    helmetAttached: candidate.mode === "assembly" ? candidate.helmetAttached !== false : true,
-    accessories: {
-      catEars: Boolean(accessories.catEars),
-      staff: Boolean(accessories.staff),
-      assist: Boolean(accessories.assist),
-      dust: Boolean(accessories.dust),
-      haptics: Boolean(accessories.haptics),
-    },
+    mode:
+      conceptId === "vector"
+        ? "assembly"
+        : candidate.mode === "assembly"
+          ? "assembly"
+          : "mission",
+    helmetAttached:
+      conceptId === "vector"
+        ? false
+        : candidate.mode === "assembly"
+          ? candidate.helmetAttached !== false
+          : true,
+    accessories: normalizedAccessories,
     accessoryBatteryWh:
       typeof candidate.accessoryBatteryWh === "number" &&
       Number.isFinite(candidate.accessoryBatteryWh) &&
@@ -174,8 +234,10 @@ export function evaluateStudioConfiguration(
     missingRequirements.push("Complete pressure-retention, restraint, thermal, and portable life-support system");
     conflicts.push("VECTOR is an Earth-based mobility research garment, not surface EVA equipment.");
   }
-  if (config.paletteId === "obsidian" && evaMission && config.lighting !== "shade") {
-    conflicts.push("Obsidian exterior in sunlight requires unresolved mission-specific thermal assessment.");
+  if (config.paletteId === "obsidian" && evaMission) {
+    conflicts.push(
+      `Obsidian EVA exterior requires unresolved mission-specific radiative and thermal assessment${config.lighting === "shade" ? ", including shaded operation and transitions" : "; direct sunlight increases the concern"}.`,
+    );
   }
   if (config.accessories.catEars && (config.terrain === "rocky" || config.task === "construction")) {
     conflicts.push("Helmet pods need snag, hatch-clearance, impact, and antenna-pattern testing for this task.");
@@ -198,6 +260,18 @@ export function evaluateStudioConfiguration(
   }
   if ((config.task === "geology" || config.task === "construction") && config.pantsStyle !== "field") {
     suggestions.push("Field cargo outer panels place sample pockets and tether points outside pressure-critical seams.");
+  }
+  if (config.task === "geology" && !config.accessories.sampleKit) {
+    suggestions.push("Add a sealed sample/tool kit if the geology procedure requires controlled specimen handling.");
+  }
+  if ((config.task === "survey" || config.task === "construction") && !config.accessories.shoulderCamera) {
+    suggestions.push("A shoulder camera could document the worksite hands-free, subject to glare, bandwidth, privacy, and failure-mode review.");
+  }
+  if (evaMission && !config.accessories.tetherReel) {
+    suggestions.push("Review task-specific tether and tool-retention needs; the optional reel shown here supplements, rather than replaces, baseline retention points.");
+  }
+  if ((config.terrain === "rocky" || config.terrain === "slope") && config.bootStyle === "traverse") {
+    suggestions.push("Compare the rock-contact or broad-stability outer boot packages; neither establishes traction without representative terrain tests.");
   }
   if (config.task === "mobility" && !config.accessories.haptics) {
     suggestions.push("Haptic cues could be evaluated as a research aid, with false-cue and power failure cases included.");

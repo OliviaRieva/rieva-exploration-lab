@@ -9,6 +9,14 @@ import {
 } from "react";
 import { siteConfig } from "../../lib/site-config";
 import {
+  centralBodies,
+  exoplanetResearchTargets,
+  getCentralBody,
+  spacecraftDesigns,
+  type CentralBodyId,
+  type SpacecraftDesignId,
+} from "../../lib/orbital/catalog";
+import {
   DEFAULT_MISSION_PARAMETERS,
   DEFAULT_SOLVER_SETTINGS,
   SECONDS_PER_DAY,
@@ -31,12 +39,17 @@ import { OrbitScene, type OrbitSceneSample } from "./OrbitScene";
 import { PhysicsAndValidation, TechnologyLadder } from "./KnowledgeSections";
 
 const HOURS = 3_600;
-const EARTH_RADIUS_M = 6_371_000;
-
 type ComputeStatus = "idle" | "calculating" | "ready" | "error";
 type SelectedScenario = "interrupted" | "reference";
 
+interface RunVisualContext {
+  centralBodyId: CentralBodyId;
+  spacecraftDesignId: SpacecraftDesignId;
+}
+
 interface FormState {
+  centralBodyId: CentralBodyId;
+  spacecraftDesignId: SpacecraftDesignId;
   initialAltitudeKm: number;
   targetAltitudeKm: number;
   dryMassKg: number;
@@ -50,6 +63,8 @@ interface FormState {
 }
 
 const defaultForm: FormState = {
+  centralBodyId: "earth",
+  spacecraftDesignId: "hall-tug",
   initialAltitudeKm: DEFAULT_MISSION_PARAMETERS.initialAltitudeM / 1_000,
   targetAltitudeKm: DEFAULT_MISSION_PARAMETERS.targetAltitudeM / 1_000,
   dryMassKg: DEFAULT_MISSION_PARAMETERS.dryMassKg,
@@ -98,10 +113,45 @@ const missionPresets: Array<{
       maxDurationDays: 14,
     },
   },
+  {
+    name: "Lunar scout",
+    description: "100 → 500 km around the Moon",
+    values: {
+      centralBodyId: "moon",
+      spacecraftDesignId: "ion-scout",
+      initialAltitudeKm: 100,
+      targetAltitudeKm: 500,
+      dryMassKg: 520,
+      propellantMassKg: 62,
+      powerKw: 9,
+      specificImpulseS: 3_000,
+      efficiencyPct: 67,
+      interruptionStartDays: 1.2,
+      interruptionDurationHours: 10,
+      maxDurationDays: 6,
+    },
+  },
+  {
+    name: "Mars relay",
+    description: "300 → 1,500 km around Mars",
+    values: {
+      centralBodyId: "mars",
+      spacecraftDesignId: "hall-tug",
+      initialAltitudeKm: 300,
+      targetAltitudeKm: 1_500,
+      interruptionStartDays: 3,
+      interruptionDurationHours: 24,
+      maxDurationDays: 12,
+    },
+  },
 ];
 
 function toMissionParameters(form: FormState): MissionParameters {
+  const centralBody = getCentralBody(form.centralBodyId);
   return {
+    centralBodyRadiusM: centralBody.meanRadiusM,
+    centralBodyGravitationalParameterM3S2:
+      centralBody.gravitationalParameterM3S2,
     initialAltitudeM: form.initialAltitudeKm * 1_000,
     targetAltitudeM: form.targetAltitudeKm * 1_000,
     dryMassKg: form.dryMassKg,
@@ -136,7 +186,7 @@ function formatClock(seconds: number): string {
 
 function formatMetric(value: number, options: Intl.NumberFormatOptions = {}) {
   if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString(undefined, options);
+  return value.toLocaleString("en-US", options);
 }
 
 function seriesIndex(result: ComparisonResult, timeS: number) {
@@ -260,7 +310,11 @@ function downloadCsv(result: ComparisonResult, missionName: string) {
   URL.revokeObjectURL(url);
 }
 
-export function SimulatorApp() {
+export interface SimulatorAppProps {
+  active?: boolean;
+}
+
+export function SimulatorApp({ active = true }: SimulatorAppProps) {
   const [form, setForm] = useState<FormState>(defaultForm);
   const [missionName, setMissionName] = useState<string>(siteConfig.defaultMissionName);
   const [result, setResult] = useState<ComparisonResult | null>(null);
@@ -277,39 +331,81 @@ export function SimulatorApp() {
   const [playbackSpeed, setPlaybackSpeed] = useState(4);
   const [announcement, setAnnouncement] = useState("");
   const [appliedTechnology, setAppliedTechnology] = useState("");
+  const [runVisualContext, setRunVisualContext] =
+    useState<RunVisualContext | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef(0);
   const autoRunRef = useRef(false);
+  const formRevisionRef = useRef(0);
+  const activeRef = useRef(active);
+
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
 
   const parameters = useMemo(() => toMissionParameters(form), [form]);
+  const centralBody = useMemo(
+    () => getCentralBody(form.centralBodyId),
+    [form.centralBodyId],
+  );
+  const selectedSpacecraft = useMemo(
+    () =>
+      spacecraftDesigns.find((design) => design.id === form.spacecraftDesignId) ??
+      spacecraftDesigns[1],
+    [form.spacecraftDesignId],
+  );
+  const displayedCentralBody = useMemo(
+    () =>
+      getCentralBody(
+        runVisualContext?.centralBodyId ?? form.centralBodyId,
+      ),
+    [form.centralBodyId, runVisualContext],
+  );
+  const displayedSpacecraftDesignId =
+    runVisualContext?.spacecraftDesignId ?? form.spacecraftDesignId;
+  const displayedParameters = result?.parameters ?? parameters;
   const maxTimeS = result?.timeS[result.timeS.length - 1] ?? parameters.maxDurationS;
   const interruption = useMemo(
     () => ({
-      startS: parameters.interruptionStartS,
+      startS: displayedParameters.interruptionStartS,
       endS: Math.min(
-        parameters.maxDurationS,
-        parameters.interruptionStartS + parameters.interruptionDurationS,
+        displayedParameters.maxDurationS,
+        displayedParameters.interruptionStartS +
+          displayedParameters.interruptionDurationS,
       ),
     }),
-    [parameters],
+    [displayedParameters],
   );
+
+  const markInputsChanged = useCallback(() => {
+    formRevisionRef.current += 1;
+    setInputsDirty(true);
+  }, []);
 
   const updateField = useCallback(
     (field: keyof FormState, value: number) => {
       setForm((current) => ({ ...current, [field]: value }));
-      setInputsDirty(Boolean(result));
+      markInputsChanged();
       setAppliedTechnology("");
     },
-    [result],
+    [markInputsChanged],
   );
 
-  const finishWithResult = useCallback((nextResult: ComparisonResult) => {
+  const finishWithResult = useCallback((
+    nextResult: ComparisonResult,
+    context: RunVisualContext,
+    submittedRevision: number,
+  ) => {
     setResult(nextResult);
+    setRunVisualContext(context);
     setComputeStatus("ready");
     setProgress(1);
     setPlayheadTimeS(0);
-    setIsPlaying(true);
-    setInputsDirty(false);
+    setIsPlaying(
+      activeRef.current &&
+        !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    );
+    setInputsDirty(formRevisionRef.current !== submittedRevision);
     const referenceOutcome = nextResult.reference.summary.targetMet
       ? `Reference target met at ${formatDuration(nextResult.reference.summary.targetMetAtS)}.`
       : "Reference target not met within the mission limit.";
@@ -321,6 +417,11 @@ export function SimulatorApp() {
 
   const runSimulation = useCallback(() => {
     const nextParameters = toMissionParameters(form);
+    const submittedContext: RunVisualContext = {
+      centralBodyId: form.centralBodyId,
+      spacecraftDesignId: form.spacecraftDesignId,
+    };
+    const submittedRevision = formRevisionRef.current;
     const nextIssues = validateMissionParameters(nextParameters);
     setIssues(nextIssues);
     setErrorMessage("");
@@ -350,7 +451,11 @@ export function SimulatorApp() {
         if (message.type === "PROGRESS") {
           setProgress(message.fraction);
         } else if (message.type === "RESULT") {
-          finishWithResult(message.result);
+          finishWithResult(
+            message.result,
+            submittedContext,
+            submittedRevision,
+          );
           worker.terminate();
           if (workerRef.current === worker) workerRef.current = null;
         } else if (message.type === "ERROR") {
@@ -368,7 +473,11 @@ export function SimulatorApp() {
         setWorkerNote("Worker unavailable; this run used the same solver on the main thread.");
         window.setTimeout(() => {
           try {
-            finishWithResult(simulateMissionComparison(nextParameters));
+            finishWithResult(
+              simulateMissionComparison(nextParameters),
+              submittedContext,
+              submittedRevision,
+            );
           } catch (error) {
             setComputeStatus("error");
             setErrorMessage(error instanceof Error ? error.message : "Simulation failed.");
@@ -385,7 +494,11 @@ export function SimulatorApp() {
       setWorkerNote("Worker unavailable; this run used the same solver on the main thread.");
       window.setTimeout(() => {
         try {
-          finishWithResult(simulateMissionComparison(nextParameters));
+          finishWithResult(
+            simulateMissionComparison(nextParameters),
+            submittedContext,
+            submittedRevision,
+          );
         } catch (error) {
           setComputeStatus("error");
           setErrorMessage(error instanceof Error ? error.message : "Simulation failed.");
@@ -395,6 +508,7 @@ export function SimulatorApp() {
   }, [finishWithResult, form]);
 
   useEffect(() => {
+    if (!active) return;
     const timer = window.setTimeout(() => {
       if (!autoRunRef.current) {
         autoRunRef.current = true;
@@ -402,12 +516,12 @@ export function SimulatorApp() {
       }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [runSimulation]);
+  }, [active, runSimulation]);
 
   useEffect(() => () => workerRef.current?.terminate(), []);
 
   useEffect(() => {
-    if (!isPlaying || !result) return;
+    if (!active || !isPlaying || !result) return;
     let frame = 0;
     let previous = performance.now();
     const simulatedSecondsPerRealSecond = 6 * HOURS * playbackSpeed;
@@ -428,7 +542,7 @@ export function SimulatorApp() {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [isPlaying, playbackSpeed, result]);
+  }, [active, isPlaying, playbackSpeed, result]);
 
   const orbitData = useMemo(() => {
     if (!result) return { reference: [], interrupted: [] };
@@ -466,7 +580,8 @@ export function SimulatorApp() {
     sample &&
       Math.abs(
         sample.semimajorAxisM -
-          (EARTH_RADIUS_M + parameters.targetAltitudeM),
+          (displayedParameters.centralBodyRadiusM +
+            displayedParameters.targetAltitudeM),
       ) <= DEFAULT_SOLVER_SETTINGS.semimajorAxisToleranceM &&
       sample.eccentricity <= DEFAULT_SOLVER_SETTINGS.eccentricityTolerance,
   );
@@ -497,7 +612,40 @@ export function SimulatorApp() {
 
   const applyMissionPreset = (preset: (typeof missionPresets)[number]) => {
     setForm((current) => ({ ...current, ...preset.values }));
-    setInputsDirty(Boolean(result));
+    markInputsChanged();
+    setAppliedTechnology("");
+  };
+
+  const chooseCentralBody = (id: CentralBodyId) => {
+    const body = getCentralBody(id);
+    setForm((current) => ({
+      ...current,
+      centralBodyId: id,
+      initialAltitudeKm: body.initialAltitudeKm,
+      targetAltitudeKm: body.targetAltitudeKm,
+      maxDurationDays: body.missionDurationDays,
+      interruptionStartDays: Math.min(
+        current.interruptionStartDays,
+        body.missionDurationDays * 0.55,
+      ),
+    }));
+    markInputsChanged();
+    setAppliedTechnology("");
+  };
+
+  const chooseSpacecraft = (id: SpacecraftDesignId) => {
+    const design = spacecraftDesigns.find((candidate) => candidate.id === id);
+    if (!design) return;
+    setForm((current) => ({
+      ...current,
+      spacecraftDesignId: id,
+      dryMassKg: design.dryMassKg,
+      propellantMassKg: design.propellantMassKg,
+      powerKw: design.powerKw,
+      specificImpulseS: design.specificImpulseS,
+      efficiencyPct: design.efficiencyPct,
+    }));
+    markInputsChanged();
     setAppliedTechnology("");
   };
 
@@ -511,7 +659,7 @@ export function SimulatorApp() {
     label: string,
   ) => {
     setForm((current) => ({ ...current, ...settings }));
-    setInputsDirty(Boolean(result));
+    markInputsChanged();
     setAppliedTechnology(label);
     document.getElementById("mission")?.scrollIntoView({ behavior: "smooth" });
   };
@@ -593,7 +741,7 @@ export function SimulatorApp() {
             <p className="eyebrow">Low-thrust mission workbench</p>
             <h1 id="page-title">Shape an orbit. Interrupt the engine. Measure what changes.</h1>
             <p className="intro-copy">
-              Compare continuous prograde thrust with the same spacecraft under one power-loss window. Every trajectory is propagated from the stated equations in your browser.
+              Choose a central world and electric spacecraft, then compare continuous prograde thrust with the identical vehicle under one power-loss window. Every trajectory is propagated from the stated equations in your browser.
             </p>
           </div>
           <div className="model-strip" aria-label="Model characteristics">
@@ -601,6 +749,7 @@ export function SimulatorApp() {
             <span>Prograde guidance</span>
             <span>SI internal units</span>
             <span>Reference + interrupted</span>
+            <span>9 central bodies</span>
           </div>
         </section>
 
@@ -645,11 +794,56 @@ export function SimulatorApp() {
                 ))}
               </div>
 
+              <div className="input-section environment-selector">
+                <h3>Destination</h3>
+                <label className="parameter-field" htmlFor="central-body">
+                  <span className="parameter-label">
+                    <span>Central body</span>
+                    <span className="parameter-unit">local orbit</span>
+                  </span>
+                  <select
+                    id="central-body"
+                    value={form.centralBodyId}
+                    onChange={(event) =>
+                      chooseCentralBody(event.currentTarget.value as CentralBodyId)
+                    }
+                  >
+                    {centralBodies.map((body) => (
+                      <option key={body.id} value={body.id}>{body.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="body-readout">
+                  <strong>{centralBody.name}</strong>
+                  <span>μ = {centralBody.gravitationalParameterM3S2.toExponential(5)} m³/s²</span>
+                  <span>Mean radius = {(centralBody.meanRadiusM / 1_000).toLocaleString("en-US")} km</span>
+                  <p>{centralBody.note}</p>
+                </div>
+              </div>
+
+              <div className="input-section spacecraft-selector">
+                <h3>Spacecraft family</h3>
+                <div className="spacecraft-options" role="group" aria-label="Electric spacecraft concept">
+                  {spacecraftDesigns.map((design) => (
+                    <button
+                      key={design.id}
+                      type="button"
+                      aria-pressed={form.spacecraftDesignId === design.id}
+                      onClick={() => chooseSpacecraft(design.id)}
+                    >
+                      <span className={`spacecraft-miniature spacecraft-miniature--${design.id}`} aria-hidden="true"><i /></span>
+                      <span><strong>{design.name}</strong><small>{design.description}</small></span>
+                    </button>
+                  ))}
+                </div>
+                <p className="input-context">{selectedSpacecraft.evidence}</p>
+              </div>
+
               <div className="input-section">
                 <h3>Orbit</h3>
                 {field("Initial altitude", "initialAltitudeKm", "km", {
-                  min: 120,
-                  max: 50_000,
+                  min: 1,
+                  max: 100_000,
                   step: 10,
                   parameterField: "initialAltitudeM",
                 })}
@@ -660,7 +854,9 @@ export function SimulatorApp() {
                   parameterField: "targetAltitudeM",
                 })}
                 {form.initialAltitudeKm < 200 ? (
-                  <p className="input-warning">Drag dominates this regime in reality but is omitted here.</p>
+                  <p className="input-warning">
+                    Very-low-orbit perturbations can dominate in reality but are omitted here.
+                  </p>
                 ) : null}
               </div>
 
@@ -743,7 +939,7 @@ export function SimulatorApp() {
                   onClick={() => {
                     setForm(defaultForm);
                     setIssues([]);
-                    setInputsDirty(Boolean(result));
+                    markInputsChanged();
                     setAppliedTechnology("");
                   }}
                 >
@@ -764,15 +960,20 @@ export function SimulatorApp() {
                     onChange={(event) => setMissionName(event.currentTarget.value)}
                   />
                 </div>
-                <span className="status-chip">3D view · planar dynamics</span>
+                <span className="status-chip">{displayedCentralBody.name} · 3D view · planar dynamics</span>
               </div>
               <div className="scene-frame">
                 <OrbitScene
                   reference={orbitData.reference}
                   interrupted={orbitData.interrupted}
                   currentTimeS={playheadTimeS}
-                  targetRadiusM={EARTH_RADIUS_M + parameters.targetAltitudeM}
-                  earthRadiusM={EARTH_RADIUS_M}
+                  targetRadiusM={displayedCentralBody.meanRadiusM + displayedParameters.targetAltitudeM}
+                  earthRadiusM={displayedCentralBody.meanRadiusM}
+                  bodyName={displayedCentralBody.name}
+                  bodyVisual={displayedCentralBody.visual}
+                  solarDistanceAu={displayedCentralBody.solarDistanceAu}
+                  bodyRotationPeriodS={displayedCentralBody.rotationPeriodS}
+                  spacecraftDesign={displayedSpacecraftDesignId}
                   outage={interruption}
                   isPlaying={isPlaying}
                 />
@@ -788,6 +989,13 @@ export function SimulatorApp() {
                     Configure the mission and run a comparison to populate the trajectory.
                   </div>
                 ) : null}
+              </div>
+              <div className="trajectory-explainer" aria-label="Why two spacecraft are shown">
+                <div><i className="trajectory-swatch trajectory-swatch--reference" /><span><strong>Cyan spacecraft</strong>Reference run: thrust remains available.</span></div>
+                <div><i className="trajectory-swatch trajectory-swatch--interrupted" /><span><strong>Amber spacecraft</strong>Same initial state, but thrust is zero during the chosen interruption.</span></div>
+                <p>
+                  Both markers may overlap before the outage. Their luminous electric-propulsion plumes are intentionally exaggerated so thrust state is visible; real ion and Hall thruster plumes are much fainter than chemical-rocket flames.
+                </p>
               </div>
             </div>
 
@@ -838,7 +1046,7 @@ export function SimulatorApp() {
                 <div className="metric-card metric-wide">
                   <span>Semimajor axis</span>
                   <strong>{sample ? formatMetric(sample.semimajorAxisM / 1_000, { maximumFractionDigits: 1 }) : "—"}</strong>
-                  <small>km from Earth center</small>
+                  <small>km from {displayedCentralBody.name} center</small>
                 </div>
                 <div className="metric-card metric-wide">
                   <span>Eccentricity</span>
@@ -857,6 +1065,12 @@ export function SimulatorApp() {
                   <div><dt>e</dt><dd>≤ 0.005</dd></div>
                 </dl>
                 <p>Crossing target altitude alone is not circular-orbit insertion.</p>
+              </div>
+              <div className="model-boundary-note">
+                <strong>{displayedCentralBody.name} local model</strong>
+                <p>
+                  The Sun is drawn for spatial context at a relative apparent size. Its gravity is not propagated, so this tool does not predict solar capture or a probability of spacecraft loss.
+                </p>
               </div>
               {workerNote ? <p className="worker-note">{workerNote}</p> : null}
             </aside>
@@ -992,6 +1206,37 @@ export function SimulatorApp() {
             <span className="mono-label">What this run shows</span>
             <p>{comparisonNarrative}</p>
           </div>
+        </section>
+
+        <section className="section-shell destination-section" id="destinations" aria-labelledby="destinations-title">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Research destinations</p>
+              <h2 id="destinations-title">Interesting is not the same as inhabited.</h2>
+              <p>
+                These distant worlds are observation targets, not selectable local-orbit models: their environments are incompletely known and present-day spacecraft cannot visit them on practical mission timescales.
+              </p>
+            </div>
+          </div>
+          <div className="exoplanet-grid">
+            {exoplanetResearchTargets.map((target, index) => (
+              <article key={target.name}>
+                <span className="exoplanet-index">X{String(index + 1).padStart(2, "0")}</span>
+                <div className="exoplanet-orb" aria-hidden="true"><i /></div>
+                <p className="exoplanet-type">{target.type}</p>
+                <h3>{target.name}</h3>
+                <p>{target.whyInteresting}</p>
+                <p className="exoplanet-boundary"><strong>Evidence boundary:</strong> {target.honestBoundary}</p>
+                <a href={target.sourceUrl} target="_blank" rel="noreferrer">{target.sourceLabel}</a>
+                <small className="exoplanet-source-meta">
+                  Published: {target.publicationDate} · Verified: {target.verifiedDate}
+                </small>
+              </article>
+            ))}
+          </div>
+          <p className="destination-source-note">
+            Solar-system radii and gravitational constants use NASA/JPL physical-parameter tables, checked 30 September 2026. “Habitable zone” describes received starlight conditions under assumptions; it is not evidence for aliens.
+          </p>
         </section>
 
         <TechnologyLadder onApply={applyTechnology} />

@@ -11,6 +11,18 @@ import * as THREE from "three";
 
 export type SurfaceSuitBodyPreset = "compact" | "standard" | "tall";
 export type SurfaceSuitPantsStyle = "contour" | "field" | "mobility";
+export type SurfaceSuitTorsoStyle = "streamline" | "field-rig" | "adaptive";
+export type SurfaceSuitBootStyle = "traverse" | "rock" | "stability";
+export type SurfaceSuitMotionMode = "neutral" | "walk" | "run" | "jump";
+export type SurfaceSuitConceptId = "selene" | "areo" | "vector";
+export type SurfaceSuitTestMode =
+  | "none"
+  | "uv"
+  | "dust"
+  | "lighting"
+  | "signal"
+  | "haptic"
+  | "support";
 
 export type SurfaceSuitPartId =
   | "helmet-pressure-shell"
@@ -39,7 +51,11 @@ export type SurfaceSuitPartId =
   | "backpack"
   | "walking-staff"
   | "assistive-lower-body-module"
-  | "haptic-module";
+  | "haptic-module"
+  | "vector-monitoring"
+  | "shoulder-camera"
+  | "tether-reel"
+  | "sample-kit";
 
 export interface SurfaceSuitPalette {
   shell: string;
@@ -64,19 +80,29 @@ export interface SurfaceSuitPaletteInput extends Partial<SurfaceSuitPalette> {
 }
 
 export interface SurfaceSuitSceneProps {
+  conceptId?: SurfaceSuitConceptId;
+  active?: boolean;
   palette?: SurfaceSuitPaletteInput;
   bodyPreset?: SurfaceSuitBodyPreset;
   selectedPartId?: string | null;
+  previewOnlySelectedPart?: boolean;
   helmetAttached?: boolean;
   exploded?: boolean;
   cutaway?: boolean;
   walking?: boolean;
+  motionMode?: SurfaceSuitMotionMode;
+  testMode?: SurfaceSuitTestMode;
   catEars?: boolean;
   staff?: boolean;
   assistModule?: boolean;
   dustModule?: boolean;
   haptics?: boolean;
+  shoulderCamera?: boolean;
+  tetherReel?: boolean;
+  sampleKit?: boolean;
   pantsStyle?: SurfaceSuitPantsStyle;
+  torsoStyle?: SurfaceSuitTorsoStyle;
+  bootStyle?: SurfaceSuitBootStyle;
   onSelectPart?: (partId: string) => void;
   className?: string;
 }
@@ -125,6 +151,10 @@ export const SURFACE_SUIT_PART_LABELS: Readonly<
   "walking-staff": "Walking staff",
   "assistive-lower-body-module": "Assistive lower-body module",
   "haptic-module": "Haptic feedback module",
+  "vector-monitoring": "VECTOR garment monitoring sensors",
+  "shoulder-camera": "Shoulder documentation camera",
+  "tether-reel": "Retractable tether reel",
+  "sample-kit": "Sealed sample and tool kit",
 };
 
 export const SURFACE_SUIT_PART_ALIASES: Readonly<
@@ -157,12 +187,40 @@ export const SURFACE_SUIT_PART_ALIASES: Readonly<
   "walking-staff": "walking-staff",
   "assistive-lower-body-module": "assist-module",
   "haptic-module": "haptic-module",
+  "vector-monitoring": "monitoring",
+  "shoulder-camera": "shoulder-camera",
+  "tether-reel": "tether-reel",
+  "sample-kit": "sample-kit",
 };
+
+const INSPECTOR_SELECTION_GROUPS: Readonly<Record<string, SurfaceSuitPartId[]>> = {
+  "comfort-garment": ["torso-layers", "lower-body"],
+  "cooling-garment": ["torso-layers"],
+  "pressure-retention": ["torso-shell", "lower-body"],
+  "restraint-layer": ["torso-shell", "lower-body"],
+  "crew-provisions": ["backpack"],
+  monitoring: ["backpack", "helmet-lights"],
+  "tool-tethers": ["lower-body", "tether-reel"],
+};
+
+function partMatchesSelection(
+  internalPartId: SurfaceSuitPartId,
+  selectedPartId: string | null,
+) {
+  if (!selectedPartId) return false;
+  return (
+    internalPartId === selectedPartId ||
+    SURFACE_SUIT_PART_ALIASES[internalPartId] === selectedPartId ||
+    INSPECTOR_SELECTION_GROUPS[selectedPartId]?.includes(internalPartId) === true
+  );
+}
 
 type MaterialRole =
   | keyof SurfaceSuitPalette
   | "platform"
-  | "seam";
+  | "seam"
+  | "skin"
+  | "hair";
 
 interface PartTransformData {
   basePosition: THREE.Vector3;
@@ -174,6 +232,7 @@ interface SuitRig {
   body: THREE.Group;
   helmetAssembly: THREE.Group;
   undercap: THREE.Object3D;
+  backpack: THREE.Group;
   partGroups: Map<SurfaceSuitPartId, THREE.Group[]>;
   leftArm: THREE.Group;
   rightArm: THREE.Group;
@@ -184,6 +243,8 @@ interface SuitRig {
   leftKnee: THREE.Group;
   rightKnee: THREE.Group;
   staffGroup: THREE.Group;
+  testEffects: Map<Exclude<SurfaceSuitTestMode, "none">, THREE.Group>;
+  selectionHalo: THREE.Box3Helper;
 }
 
 interface CameraOrbit {
@@ -228,6 +289,8 @@ function euler(
 function colorForRole(role: MaterialRole, palette: SurfaceSuitPalette) {
   if (role === "platform") return "#d8ddea";
   if (role === "seam") return palette.underlayer;
+  if (role === "skin") return "#a66f57";
+  if (role === "hair") return "#2c2024";
   return palette[role];
 }
 
@@ -250,7 +313,7 @@ function createMaterial(role: MaterialRole, palette: SurfaceSuitPalette) {
   const material = new THREE.MeshStandardMaterial({
     color,
     roughness:
-      role === "underlayer" || role === "seam"
+      role === "underlayer" || role === "seam" || role === "skin" || role === "hair"
         ? 0.72
         : role === "metal" || role === "assist"
           ? 0.32
@@ -303,6 +366,8 @@ interface MeshOptions {
   scale?: THREE.Vector3;
   cutawaySurface?: boolean;
   pantsStyle?: SurfaceSuitPantsStyle;
+  torsoStyle?: SurfaceSuitTorsoStyle;
+  bootStyle?: SurfaceSuitBootStyle;
   castShadow?: boolean;
 }
 
@@ -321,6 +386,8 @@ function addMesh(
   mesh.userData.materialRole = role;
   mesh.userData.cutawaySurface = options.cutawaySurface ?? false;
   if (options.pantsStyle) mesh.userData.pantsStyle = options.pantsStyle;
+  if (options.torsoStyle) mesh.userData.torsoStyle = options.torsoStyle;
+  if (options.bootStyle) mesh.userData.bootStyle = options.bootStyle;
   if (options.position) mesh.position.copy(options.position);
   if (options.rotation) mesh.rotation.copy(options.rotation);
   if (options.scale) mesh.scale.copy(options.scale);
@@ -328,6 +395,18 @@ function addMesh(
   mesh.receiveShadow = true;
   parent.add(mesh);
   return mesh;
+}
+
+function makeConceptGroup(
+  parent: THREE.Object3D,
+  conceptId: SurfaceSuitConceptId,
+  name: string,
+) {
+  const group = new THREE.Group();
+  group.name = name;
+  group.userData.conceptVariant = conceptId;
+  parent.add(group);
+  return group;
 }
 
 function addTorus(
@@ -388,6 +467,43 @@ function addCylinder(
     new THREE.CylinderGeometry(radiusTop, radiusBottom, height, 24, 3),
     role,
     { ...options, position, rotation, scale },
+  );
+}
+
+function tailoredPanelGeometry(
+  points: Array<[number, number]>,
+  depth = 0.055,
+) {
+  const shape = new THREE.Shape();
+  points.forEach(([x, y], index) => {
+    if (index === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  });
+  shape.closePath();
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: true,
+    bevelSegments: 3,
+    bevelSize: 0.025,
+    bevelThickness: 0.018,
+    curveSegments: 8,
+  });
+  geometry.center();
+  return geometry;
+}
+
+function anatomicalTorsoGeometry() {
+  return new THREE.LatheGeometry(
+    [
+      new THREE.Vector2(0.36, -0.7),
+      new THREE.Vector2(0.48, -0.52),
+      new THREE.Vector2(0.52, -0.18),
+      new THREE.Vector2(0.59, 0.18),
+      new THREE.Vector2(0.66, 0.42),
+      new THREE.Vector2(0.52, 0.67),
+      new THREE.Vector2(0.31, 0.75),
+    ],
+    48,
   );
 }
 
@@ -540,15 +656,15 @@ function buildArm(
     vector(0, -0.05, 0.015),
     vector(1.04, 1, 0.75),
   );
-  for (let finger = 0; finger < 3; finger += 1) {
+  for (let finger = 0; finger < 4; finger += 1) {
     addCapsule(
       glove,
       `${sideName} glove finger ${finger + 1}`,
       0.032,
       0.11,
       "shell",
-      vector((finger - 1) * 0.058, -0.19, 0.035),
-      vector(0.9, 1, 0.9),
+      vector((finger - 1.5) * 0.052, -0.19 - Math.abs(finger - 1.5) * 0.008, 0.035),
+      vector(0.82, 0.92 + (finger === 1 || finger === 2 ? 0.1 : 0), 0.82),
     );
   }
   addCapsule(
@@ -787,6 +903,73 @@ function buildLeg(
     Math.PI,
   );
 
+  const traverseTread = new THREE.Group();
+  traverseTread.name = `${sideName} traverse tread package`;
+  traverseTread.userData.bootStyle = "traverse";
+  boot.add(traverseTread);
+  for (let lug = 0; lug < 4; lug += 1) {
+    addMesh(
+      traverseTread,
+      `${sideName} traverse sole lug ${lug + 1}`,
+      new THREE.BoxGeometry(0.24, 0.035, 0.1),
+      "accent",
+      {
+        position: vector(0, -0.235, -0.02 + lug * 0.12),
+        rotation: euler(0, lug % 2 ? 0.16 : -0.16, 0),
+        bootStyle: "traverse",
+      },
+    );
+  }
+
+  const rockTread = new THREE.Group();
+  rockTread.name = `${sideName} rock-contact tread package`;
+  rockTread.userData.bootStyle = "rock";
+  boot.add(rockTread);
+  for (const sideX of [-1, 1] as const) {
+    for (let lug = 0; lug < 3; lug += 1) {
+      addMesh(
+        rockTread,
+        `${sideName} rock edge lug ${sideX}-${lug}`,
+        new THREE.BoxGeometry(0.11, 0.065, 0.15),
+        "underlayer",
+        {
+          position: vector(sideX * 0.14, -0.24, lug * 0.17 - 0.06),
+          rotation: euler(0, sideX * 0.12, sideX * -0.08),
+          bootStyle: "rock",
+        },
+      );
+    }
+  }
+
+  const stabilityTread = new THREE.Group();
+  stabilityTread.name = `${sideName} broad stability sole package`;
+  stabilityTread.userData.bootStyle = "stability";
+  boot.add(stabilityTread);
+  addCapsule(
+    stabilityTread,
+    `${sideName} broad stability contact sole`,
+    0.18,
+    0.45,
+    "underlayer",
+    vector(0, -0.22, 0.13),
+    vector(1.32, 0.42, 1.06),
+    euler(Math.PI / 2, 0, 0),
+    { bootStyle: "stability" },
+  );
+  for (const sideX of [-1, 1] as const) {
+    addMesh(
+      stabilityTread,
+      `${sideName} stability outrigger ${sideX}`,
+      new THREE.SphereGeometry(0.075, 16, 10),
+      "accent",
+      {
+        position: vector(sideX * 0.24, -0.22, 0.14),
+        scale: vector(1, 0.4, 1.45),
+        bootStyle: "stability",
+      },
+    );
+  }
+
   const gaiter = makePart(
     boot,
     registry,
@@ -889,12 +1072,12 @@ function buildSuit() {
   );
   addMesh(
     torso,
-    "Tapered torso hard upper",
-    new THREE.SphereGeometry(0.72, 42, 28),
+    "Anatomically tapered pressure torso",
+    anatomicalTorsoGeometry(),
     "shell",
     {
-      scale: vector(1, 1.1, 0.62),
-      position: vector(0, 0.09, 0),
+      scale: vector(1, 0.92, 0.73),
+      position: vector(0, 0.1, 0),
       cutawaySurface: true,
     },
   );
@@ -931,11 +1114,20 @@ function buildSuit() {
   );
   addMesh(
     torsoLayers,
-    "Layered chest impact panel",
-    new THREE.SphereGeometry(0.51, 36, 22),
+    "Tailored layered chest impact panel",
+    tailoredPanelGeometry([
+      [-0.42, -0.36],
+      [-0.49, 0.16],
+      [-0.28, 0.46],
+      [0, 0.56],
+      [0.28, 0.46],
+      [0.49, 0.16],
+      [0.42, -0.36],
+      [0, -0.48],
+    ], 0.08),
     "secondaryShell",
     {
-      scale: vector(1, 0.78, 0.18),
+      position: vector(0, 0.03, 0.11),
       cutawaySurface: true,
     },
   );
@@ -959,6 +1151,72 @@ function buildSuit() {
     "light",
     { position: vector(0.3, 0.17, 0.1), rotation: euler(Math.PI / 2) },
   );
+
+  const streamlineTailoring = new THREE.Group();
+  streamlineTailoring.name = "Streamline torso tailoring";
+  streamlineTailoring.userData.torsoStyle = "streamline";
+  torsoLayers.add(streamlineTailoring);
+  for (const side of [-1, 1] as const) {
+    addMesh(
+      streamlineTailoring,
+      `${side < 0 ? "left" : "right"} streamline clavicle panel`,
+      tailoredPanelGeometry([
+        [0, -0.08],
+        [0.32, -0.02],
+        [0.41, 0.13],
+        [0.12, 0.08],
+      ], 0.045),
+      "shell",
+      {
+        position: vector(side * 0.24, 0.31, 0.18),
+        rotation: euler(0, side * -0.08, side * -0.14),
+        torsoStyle: "streamline",
+      },
+    );
+  }
+
+  const fieldRigTailoring = new THREE.Group();
+  fieldRigTailoring.name = "Field rig torso tailoring";
+  fieldRigTailoring.userData.torsoStyle = "field-rig";
+  torsoLayers.add(fieldRigTailoring);
+  addMesh(
+    fieldRigTailoring,
+    "Field rig recessed service panel",
+    new THREE.BoxGeometry(0.56, 0.34, 0.075, 3, 3, 1),
+    "shell",
+    { position: vector(0, 0.02, 0.17), torsoStyle: "field-rig" },
+  );
+  for (const side of [-1, 1] as const) {
+    addCapsule(
+      fieldRigTailoring,
+      `${side < 0 ? "left" : "right"} field attachment rail`,
+      0.035,
+      0.48,
+      "accent",
+      vector(side * 0.42, 0.02, 0.16),
+      vector(0.7, 1, 0.7),
+      euler(0, 0, side * -0.12),
+      { torsoStyle: "field-rig" },
+    );
+  }
+
+  const adaptiveTailoring = new THREE.Group();
+  adaptiveTailoring.name = "Adaptive lattice torso tailoring";
+  adaptiveTailoring.userData.torsoStyle = "adaptive";
+  torsoLayers.add(adaptiveTailoring);
+  for (let band = 0; band < 5; band += 1) {
+    addTorus(
+      adaptiveTailoring,
+      `Adaptive chest lattice band ${band + 1}`,
+      0.29 + band * 0.035,
+      0.018,
+      band % 2 ? "accent" : "metal",
+      vector(0, 0.26 - band * 0.14, 0.18),
+      euler(),
+      vector(1.18, 0.48, 1),
+      Math.PI,
+    ).userData.torsoStyle = "adaptive";
+  }
 
   const haptics = makePart(
     torsoLayers,
@@ -1036,8 +1294,8 @@ function buildSuit() {
   );
   addMesh(
     pressureShell,
-    "Rounded helmet pressure shell surface",
-    new THREE.SphereGeometry(0.54, 48, 32),
+    "Sculpted rear helmet pressure shell",
+    new THREE.SphereGeometry(0.54, 48, 32, Math.PI, Math.PI, 0, Math.PI),
     "shell",
     { scale: vector(1, 1.04, 0.96), cutawaySurface: true },
   );
@@ -1189,12 +1447,65 @@ function buildSuit() {
     );
   }
 
-  const undercap = addMesh(
-    body,
-    "Visible helmet undercap",
-    new THREE.SphereGeometry(0.34, 28, 20),
+  const undercap = new THREE.Group();
+  undercap.name = "Display-mode human head and communications cap";
+  undercap.position.set(0, 1.82, 0.01);
+  body.add(undercap);
+  addMesh(
+    undercap,
+    "Anatomical display head",
+    new THREE.SphereGeometry(0.31, 40, 28),
+    "skin",
+    { scale: vector(0.84, 1.06, 0.88) },
+  );
+  addMesh(
+    undercap,
+    "Communications cap crown",
+    new THREE.SphereGeometry(0.318, 40, 24, 0, Math.PI * 2, 0, Math.PI * 0.54),
     "underlayer",
-    { position: vector(0, 1.84, 0), scale: vector(0.92, 1.05, 0.94) },
+    { position: vector(0, 0.04, -0.005), scale: vector(0.86, 1.02, 0.9) },
+  );
+  addCapsule(
+    undercap,
+    "Display-mode nose",
+    0.035,
+    0.075,
+    "skin",
+    vector(0, -0.015, 0.292),
+    vector(0.7, 1, 0.8),
+    euler(Math.PI / 2, 0, 0),
+  );
+  for (const side of [-1, 1] as const) {
+    addMesh(
+      undercap,
+      `${side < 0 ? "left" : "right"} display eye`,
+      new THREE.SphereGeometry(0.024, 16, 10),
+      "hair",
+      { position: vector(side * 0.105, 0.055, 0.27), scale: vector(1, 0.55, 0.45) },
+    );
+    addMesh(
+      undercap,
+      `${side < 0 ? "left" : "right"} display ear`,
+      new THREE.SphereGeometry(0.052, 16, 12),
+      "skin",
+      { position: vector(side * 0.276, -0.01, 0), scale: vector(0.45, 1, 0.55) },
+    );
+  }
+  addMesh(
+    undercap,
+    "Display-mode mouth",
+    new THREE.TorusGeometry(0.06, 0.008, 8, 20, Math.PI),
+    "hair",
+    { position: vector(0, -0.12, 0.274), rotation: euler(0, 0, Math.PI) },
+  );
+  addCylinder(
+    undercap,
+    "Display-mode neck",
+    0.13,
+    0.15,
+    0.24,
+    "skin",
+    vector(0, -0.38, 0),
   );
 
   const backpack = makePart(
@@ -1247,11 +1558,127 @@ function buildSuit() {
     new THREE.TubeGeometry(hoseCurve, 28, 0.035, 10, false),
     "underlayer",
   );
+  addMesh(
+    backpack,
+    "Life-support service panel",
+    tailoredPanelGeometry([
+      [-0.24, -0.23],
+      [-0.28, 0.23],
+      [0.28, 0.23],
+      [0.24, -0.23],
+    ], 0.045),
+    "shell",
+    { position: vector(0, 0.1, -0.31), rotation: euler(0, Math.PI, 0) },
+  );
+  for (let fin = 0; fin < 5; fin += 1) {
+    addMesh(
+      backpack,
+      `Life-support heat-rejection fin ${fin + 1}`,
+      new THREE.BoxGeometry(0.38, 0.025, 0.05),
+      fin === 2 ? "accent" : "metal",
+      { position: vector(0, 0.35 - fin * 0.16, -0.37) },
+    );
+  }
 
   const leftArmBuild = buildArm(body, partGroups, -1);
   const rightArmBuild = buildArm(body, partGroups, 1);
   const leftLegBuild = buildLeg(body, partGroups, -1);
   const rightLegBuild = buildLeg(body, partGroups, 1);
+
+  const shoulderCamera = makePart(
+    body,
+    partGroups,
+    "shoulder-camera",
+    "Shoulder documentation camera",
+    vector(0.68, 1.34, 0.18),
+    vector(0.22, 0.1, 0.12),
+  );
+  addMesh(
+    shoulderCamera,
+    "Aerodynamic shoulder camera fairing",
+    tailoredPanelGeometry([
+      [-0.16, -0.1],
+      [-0.12, 0.15],
+      [0.12, 0.15],
+      [0.18, -0.06],
+      [0, -0.16],
+    ], 0.12),
+    "secondaryShell",
+    { rotation: euler(-0.16, 0.24, -0.08) },
+  );
+  addMesh(
+    shoulderCamera,
+    "Shoulder camera optical window",
+    new THREE.CylinderGeometry(0.055, 0.066, 0.04, 24),
+    "visor",
+    { position: vector(0.03, 0.01, 0.11), rotation: euler(Math.PI / 2) },
+  );
+  addMesh(
+    shoulderCamera,
+    "Shoulder camera task lamp",
+    new THREE.SphereGeometry(0.035, 16, 10),
+    "light",
+    { position: vector(-0.09, -0.035, 0.1) },
+  );
+
+  const tetherReel = makePart(
+    pelvis,
+    partGroups,
+    "tether-reel",
+    "Auxiliary retractable tether reel",
+    vector(-0.48, -0.05, 0.18),
+    vector(-0.2, -0.05, 0.12),
+  );
+  addMesh(
+    tetherReel,
+    "Tether reel protective housing",
+    new THREE.CylinderGeometry(0.13, 0.13, 0.09, 32),
+    "secondaryShell",
+    { rotation: euler(Math.PI / 2), scale: vector(1, 1, 0.82) },
+  );
+  addTorus(tetherReel, "Tether reel accent bezel", 0.095, 0.018, "accent", vector(0, 0, 0.055));
+  addCapsule(
+    tetherReel,
+    "Tether emergency release tab",
+    0.025,
+    0.09,
+    "haptic",
+    vector(-0.12, -0.1, 0.04),
+    vector(0.8, 1, 0.8),
+    euler(0, 0, 0.45),
+  );
+
+  const sampleKit = makePart(
+    leftLegBuild.leg,
+    partGroups,
+    "sample-kit",
+    "Sealed sample and tool kit",
+    vector(-0.28, -0.45, 0.1),
+    vector(-0.24, -0.03, 0.14),
+  );
+  addMesh(
+    sampleKit,
+    "Sculpted sample carrier shell",
+    tailoredPanelGeometry([
+      [-0.15, -0.25],
+      [-0.19, 0.19],
+      [-0.11, 0.29],
+      [0.13, 0.25],
+      [0.18, -0.22],
+      [0, -0.29],
+    ], 0.13),
+    "secondaryShell",
+    { rotation: euler(0, -0.16, -0.06) },
+  );
+  addCapsule(
+    sampleKit,
+    "Sample kit dust-sealed latch",
+    0.025,
+    0.16,
+    "accent",
+    vector(0.08, 0.02, 0.1),
+    vector(0.75, 1, 0.75),
+  );
 
   const assistHip = makePart(
     pelvis,
@@ -1281,14 +1708,14 @@ function buildSuit() {
   );
 
   const staffGroup = makePart(
-    rightArmBuild.glove,
+    body,
     partGroups,
     "walking-staff",
     "Optional walking staff",
-    vector(0.18, -0.1, 0.08),
+    vector(1.07, 0.05, 0.1),
     vector(0.2, -0.08, 0.1),
   );
-  staffGroup.rotation.z = -0.08;
+  staffGroup.rotation.z = -0.06;
   addCylinder(
     staffGroup,
     "Walking staff tapered shaft",
@@ -1296,7 +1723,7 @@ function buildSuit() {
     0.045,
     2.45,
     "assist",
-    vector(0, -1.04, 0),
+    vector(0, -0.72, 0),
   );
   addTorus(
     staffGroup,
@@ -1304,24 +1731,613 @@ function buildSuit() {
     0.13,
     0.035,
     "underlayer",
-    vector(0.07, 0.17, 0),
+    vector(0.07, 0.49, 0),
     euler(0, Math.PI / 2, 0),
     vector(1, 0.68, 1),
     Math.PI * 1.35,
   );
-  addMesh(
+  addCylinder(
     staffGroup,
-    "Walking staff terrain tip",
-    new THREE.ConeGeometry(0.07, 0.2, 18),
-    "metal",
-    { position: vector(0, -2.32, 0), rotation: euler(0, 0, Math.PI) },
+    "Walking staff broad replaceable foot",
+    0.14,
+    0.18,
+    0.075,
+    "underlayer",
+    vector(0, -1.98, 0),
   );
+  addTorus(
+    staffGroup,
+    "Walking staff force-sensing foot ring",
+    0.13,
+    0.018,
+    "accent",
+    vector(0, -1.93, 0),
+    euler(Math.PI / 2),
+  );
+
+  // The common pressure architecture above is shared by the two EVA studies.
+  // Mark it before adding the concept overlays so VECTOR can become a visibly
+  // lighter Earth garment without implying that it contains a pressure shell.
+  const vectorRelevantAccessories = new Set<SurfaceSuitPartId>([
+    "walking-staff",
+    "assistive-lower-body-module",
+    "haptic-module",
+    "shoulder-camera",
+  ]);
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const partId = nearestPartId(object);
+    if (!partId || !vectorRelevantAccessories.has(partId)) {
+      object.userData.conceptBase = "eva";
+    }
+  });
+
+  // SELENE: a high-contrast lunar architecture with broad dust guards,
+  // shadow-work lighting rails, and a faceted upper-shell silhouette.
+  const seleneChest = makeConceptGroup(
+    torsoLayers,
+    "selene",
+    "SELENE lunar chest architecture",
+  );
+  for (const side of [-1, 1] as const) {
+    addMesh(
+      seleneChest,
+      `${side < 0 ? "Left" : "Right"} SELENE clavicle guard`,
+      tailoredPanelGeometry([
+        [-0.04, -0.2],
+        [0.28, -0.15],
+        [0.38, 0.12],
+        [0.18, 0.28],
+        [-0.08, 0.18],
+      ], 0.06),
+      "shell",
+      {
+        position: vector(side * 0.26, 0.21, 0.22),
+        rotation: euler(-0.04, side * -0.1, side * -0.12),
+      },
+    );
+    addCapsule(
+      seleneChest,
+      `${side < 0 ? "Left" : "Right"} SELENE shadow-work light rail`,
+      0.026,
+      0.42,
+      "light",
+      vector(side * 0.42, 0.02, 0.22),
+      vector(0.72, 1, 0.72),
+      euler(0, 0, side * -0.12),
+    );
+  }
+  const seleneHelmet = makeConceptGroup(
+    pressureShell,
+    "selene",
+    "SELENE lunar helmet crown and optics",
+  );
+  addTorus(
+    seleneHelmet,
+    "SELENE low-profile helmet brow guard",
+    0.44,
+    0.038,
+    "secondaryShell",
+    vector(0, 0.15, 0.22),
+    euler(),
+    vector(1.02, 0.68, 1),
+    Math.PI,
+  );
+  for (const side of [-1, 1] as const) {
+    addMesh(
+      seleneHelmet,
+      `${side < 0 ? "Left" : "Right"} SELENE horizon lamp`,
+      new THREE.OctahedronGeometry(0.075, 2),
+      "light",
+      { position: vector(side * 0.43, 0.04, 0.28), scale: vector(0.8, 0.6, 1) },
+    );
+    const shoulderOverlay = makeConceptGroup(
+      side < 0 ? leftArmBuild.shoulder : rightArmBuild.shoulder,
+      "selene",
+      `${side < 0 ? "Left" : "Right"} SELENE shoulder shield`,
+    );
+    addMesh(
+      shoulderOverlay,
+      `${side < 0 ? "Left" : "Right"} SELENE faceted shoulder shield`,
+      new THREE.DodecahedronGeometry(0.285, 1),
+      "shell",
+      { scale: vector(1.16, 0.78, 1.02), position: vector(0, 0.01, 0.01) },
+    );
+    const bootOverlay = makeConceptGroup(
+      side < 0 ? leftLegBuild.boot : rightLegBuild.boot,
+      "selene",
+      `${side < 0 ? "Left" : "Right"} SELENE lunar boot guard`,
+    );
+    addMesh(
+      bootOverlay,
+      `${side < 0 ? "Left" : "Right"} SELENE broad dust-shedding oversole`,
+      new THREE.ExtrudeGeometry(
+        new THREE.Shape()
+          .moveTo(-0.22, -0.32)
+          .lineTo(0.22, -0.32)
+          .lineTo(0.28, 0.3)
+          .lineTo(0.16, 0.48)
+          .lineTo(-0.16, 0.48)
+          .lineTo(-0.28, 0.3)
+          .closePath(),
+        { depth: 0.08, bevelEnabled: true, bevelSize: 0.025, bevelThickness: 0.02 },
+      ),
+      "secondaryShell",
+      {
+        position: vector(0, -0.22, 0.1),
+        rotation: euler(Math.PI / 2, 0, 0),
+        scale: vector(1.05, 1.12, 1),
+      },
+    );
+  }
+
+  // AREO: an asymmetric geology rig with protected sample interfaces and
+  // lower-profile panels intended to read differently from the lunar system.
+  const areoChest = makeConceptGroup(
+    torsoLayers,
+    "areo",
+    "AREO geology chest architecture",
+  );
+  for (let band = 0; band < 4; band += 1) {
+    addMesh(
+      areoChest,
+      `AREO layered abrasion lamella ${band + 1}`,
+      tailoredPanelGeometry([
+        [-0.34 + band * 0.025, -0.07],
+        [0.34 - band * 0.025, -0.07],
+        [0.29 - band * 0.018, 0.08],
+        [-0.29 + band * 0.018, 0.08],
+      ], 0.035),
+      band === 1 ? "accent" : band === 3 ? "metal" : "secondaryShell",
+      { position: vector(0, 0.3 - band * 0.17, 0.23 + band * 0.008) },
+    );
+  }
+  addMesh(
+    areoChest,
+    "AREO sealed geology manifest pocket",
+    tailoredPanelGeometry([
+      [-0.14, -0.17],
+      [0.14, -0.15],
+      [0.17, 0.13],
+      [-0.1, 0.18],
+    ], 0.08),
+    "shell",
+    { position: vector(0.3, -0.18, 0.24), rotation: euler(0, -0.08, -0.08) },
+  );
+  const areoHelmet = makeConceptGroup(
+    pressureShell,
+    "areo",
+    "AREO Mars helmet dust architecture",
+  );
+  addMesh(
+    areoHelmet,
+    "AREO visor dust brow",
+    tailoredPanelGeometry([
+      [-0.42, -0.08],
+      [0.42, -0.08],
+      [0.31, 0.11],
+      [-0.28, 0.14],
+    ], 0.08),
+    "secondaryShell",
+    { position: vector(0, 0.2, 0.36), rotation: euler(-0.16, 0, 0) },
+  );
+  for (const side of [-1, 1] as const) {
+    const shoulderOverlay = makeConceptGroup(
+      side < 0 ? leftArmBuild.shoulder : rightArmBuild.shoulder,
+      "areo",
+      `${side < 0 ? "Left" : "Right"} AREO field shoulder`,
+    );
+    addMesh(
+      shoulderOverlay,
+      `${side < 0 ? "Left" : "Right"} AREO layered shoulder tile`,
+      tailoredPanelGeometry([
+        [-0.22, -0.12],
+        [0.23, -0.12],
+        [0.17, 0.17],
+        [-0.11, 0.22],
+      ], 0.075),
+      side < 0 ? "secondaryShell" : "accent",
+      { position: vector(0, 0.03, 0.22), rotation: euler(-0.2, 0, 0) },
+    );
+    const shinOverlay = makeConceptGroup(
+      side < 0 ? leftLegBuild.knee : rightLegBuild.knee,
+      "areo",
+      `${side < 0 ? "Left" : "Right"} AREO shin armor`,
+    );
+    addMesh(
+      shinOverlay,
+      `${side < 0 ? "Left" : "Right"} AREO replaceable shin abrasion tile`,
+      tailoredPanelGeometry([
+        [-0.13, -0.31],
+        [0.13, -0.31],
+        [0.18, 0.25],
+        [0, 0.36],
+        [-0.18, 0.25],
+      ], 0.065),
+      "secondaryShell",
+      { position: vector(0, -0.42, 0.2), rotation: euler(-0.05, 0, 0) },
+    );
+  }
+
+  // VECTOR is intentionally not an EVA suit. Its close-fitting textile volume,
+  // visible wearer, loading harness, and open head distinguish an Earth test
+  // garment from the pressure architecture used by SELENE and AREO.
+  const vectorGarment = makeConceptGroup(
+    body,
+    "vector",
+    "VECTOR Earth mobility research garment",
+  );
+  vectorGarment.userData.partId = "torso-layers" satisfies SurfaceSuitPartId;
+  const vectorTorsoGroups = partGroups.get("torso-layers") ?? [];
+  vectorTorsoGroups.push(vectorGarment);
+  partGroups.set("torso-layers", vectorTorsoGroups);
+  addMesh(
+    vectorGarment,
+    "VECTOR anatomical knit torso",
+    anatomicalTorsoGeometry(),
+    "underlayer",
+    { scale: vector(0.86, 0.86, 0.57), position: vector(0, 0.96, 0) },
+  );
+  addMesh(
+    vectorGarment,
+    "VECTOR knitted sternum loading panel",
+    tailoredPanelGeometry([
+      [-0.23, -0.42],
+      [0.23, -0.42],
+      [0.31, 0.25],
+      [0, 0.48],
+      [-0.31, 0.25],
+    ], 0.035),
+    "secondaryShell",
+    { position: vector(0, 1.03, 0.34) },
+  );
+  const vectorMonitoring = makePart(
+    vectorGarment,
+    partGroups,
+    "vector-monitoring",
+    "VECTOR removable physiological monitoring cluster",
+  );
+  for (const [index, sensorPosition] of [
+    vector(-0.2, 1.18, 0.405),
+    vector(0.2, 1.18, 0.405),
+    vector(0, 0.83, 0.405),
+  ].entries()) {
+    addMesh(
+      vectorMonitoring,
+      `VECTOR removable garment sensor ${index + 1}`,
+      new THREE.CylinderGeometry(0.046, 0.052, 0.025, 20),
+      "haptic",
+      { position: sensorPosition, rotation: euler(Math.PI / 2, 0, 0) },
+    );
+  }
+  for (const side of [-1, 1] as const) {
+    addCapsule(
+      vectorGarment,
+      `${side < 0 ? "Left" : "Right"} VECTOR diagonal load strap`,
+      0.027,
+      0.94,
+      "accent",
+      vector(side * 0.17, 0.92, 0.37),
+      vector(0.7, 1, 0.6),
+      euler(0, 0, side * -0.31),
+    );
+  }
+  addTorus(
+    vectorGarment,
+    "VECTOR waist load-transfer belt",
+    0.41,
+    0.045,
+    "assist",
+    vector(0, 0.23, 0),
+    euler(Math.PI / 2),
+    vector(1, 1, 0.67),
+  );
+  addMesh(
+    vectorGarment,
+    "VECTOR close-fitting hip garment",
+    new THREE.SphereGeometry(0.47, 34, 22),
+    "underlayer",
+    { position: vector(0, 0.14, 0), scale: vector(1, 0.54, 0.68) },
+  );
+  addMesh(
+    vectorGarment,
+    "VECTOR uncovered research participant head",
+    new THREE.SphereGeometry(0.3, 40, 28),
+    "skin",
+    { position: vector(0, 1.9, 0.02), scale: vector(0.82, 1.06, 0.88) },
+  );
+  addMesh(
+    vectorGarment,
+    "VECTOR participant hair",
+    new THREE.SphereGeometry(0.307, 40, 22, 0, Math.PI * 2, 0, Math.PI * 0.54),
+    "hair",
+    { position: vector(0, 1.96, 0.005), scale: vector(0.85, 1.02, 0.9) },
+  );
+  addCapsule(
+    vectorGarment,
+    "VECTOR participant nose",
+    0.034,
+    0.07,
+    "skin",
+    vector(0, 1.88, 0.3),
+    vector(0.7, 1, 0.8),
+    euler(Math.PI / 2, 0, 0),
+  );
+  for (const side of [-1, 1] as const) {
+    addMesh(
+      vectorGarment,
+      `${side < 0 ? "Left" : "Right"} VECTOR participant eye`,
+      new THREE.SphereGeometry(0.023, 16, 10),
+      "hair",
+      { position: vector(side * 0.1, 1.94, 0.286), scale: vector(1, 0.55, 0.45) },
+    );
+    addMesh(
+      vectorGarment,
+      `${side < 0 ? "Left" : "Right"} VECTOR participant ear`,
+      new THREE.SphereGeometry(0.05, 16, 12),
+      "skin",
+      { position: vector(side * 0.265, 1.88, 0.01), scale: vector(0.42, 1, 0.55) },
+    );
+    const upperArm = makeConceptGroup(
+      side < 0 ? leftArmBuild.shoulder : rightArmBuild.shoulder,
+      "vector",
+      `${side < 0 ? "Left" : "Right"} VECTOR upper sleeve`,
+    );
+    addCapsule(
+      upperArm,
+      `${side < 0 ? "Left" : "Right"} VECTOR textile upper sleeve`,
+      0.145,
+      0.55,
+      "underlayer",
+      vector(0, -0.39, 0),
+      vector(0.9, 1, 0.82),
+    );
+    addCapsule(
+      upperArm,
+      `${side < 0 ? "Left" : "Right"} VECTOR upper-arm load band`,
+      0.157,
+      0.12,
+      "assist",
+      vector(0, -0.31, 0),
+      vector(0.9, 1, 0.82),
+    );
+    const lowerArm = makeConceptGroup(
+      side < 0 ? leftArmBuild.elbow : rightArmBuild.elbow,
+      "vector",
+      `${side < 0 ? "Left" : "Right"} VECTOR forearm sleeve`,
+    );
+    addCapsule(
+      lowerArm,
+      `${side < 0 ? "Left" : "Right"} VECTOR textile forearm`,
+      0.12,
+      0.5,
+      "underlayer",
+      vector(0, -0.38, 0),
+      vector(0.88, 1, 0.8),
+    );
+    addCapsule(
+      lowerArm,
+      `${side < 0 ? "Left" : "Right"} VECTOR bare hand`,
+      0.105,
+      0.2,
+      "skin",
+      vector(0, -0.79, 0.01),
+      vector(0.9, 1, 0.68),
+    );
+    const upperLeg = makeConceptGroup(
+      side < 0 ? leftLegBuild.leg : rightLegBuild.leg,
+      "vector",
+      `${side < 0 ? "Left" : "Right"} VECTOR upper leg garment`,
+    );
+    addCapsule(
+      upperLeg,
+      `${side < 0 ? "Left" : "Right"} VECTOR anatomical trouser leg`,
+      0.185,
+      0.69,
+      "underlayer",
+      vector(0, -0.44, 0),
+      vector(0.94, 1, 0.82),
+    );
+    addCapsule(
+      upperLeg,
+      `${side < 0 ? "Left" : "Right"} VECTOR thigh loading band`,
+      0.198,
+      0.13,
+      "assist",
+      vector(0, -0.41, 0),
+      vector(0.95, 1, 0.84),
+    );
+    const lowerLeg = makeConceptGroup(
+      side < 0 ? leftLegBuild.knee : rightLegBuild.knee,
+      "vector",
+      `${side < 0 ? "Left" : "Right"} VECTOR lower leg garment`,
+    );
+    addCapsule(
+      lowerLeg,
+      `${side < 0 ? "Left" : "Right"} VECTOR lower textile leg`,
+      0.135,
+      0.61,
+      "underlayer",
+      vector(0, -0.43, 0),
+      vector(0.9, 1, 0.8),
+    );
+    const trainingShoe = makeConceptGroup(
+      side < 0 ? leftLegBuild.boot : rightLegBuild.boot,
+      "vector",
+      `${side < 0 ? "Left" : "Right"} VECTOR instrumented training shoe`,
+    );
+    addMesh(
+      trainingShoe,
+      `${side < 0 ? "Left" : "Right"} VECTOR pressure-sensing training shoe`,
+      new THREE.CapsuleGeometry(0.15, 0.34, 8, 24),
+      "secondaryShell",
+      {
+        position: vector(0, -0.09, 0.2),
+        rotation: euler(Math.PI / 2, 0, 0),
+        scale: vector(0.85, 1.08, 0.55),
+      },
+    );
+    addMesh(
+      trainingShoe,
+      `${side < 0 ? "Left" : "Right"} VECTOR force-sensing sole`,
+      new THREE.BoxGeometry(0.26, 0.055, 0.55, 4, 1, 8),
+      "haptic",
+      { position: vector(0, -0.2, 0.2) },
+    );
+  }
+  addMesh(
+    vectorGarment,
+    "VECTOR participant mouth",
+    new THREE.TorusGeometry(0.058, 0.007, 8, 20, Math.PI),
+    "hair",
+    { position: vector(0, 1.79, 0.282), rotation: euler(0, 0, Math.PI) },
+  );
+
+  const testEffects = new Map<Exclude<SurfaceSuitTestMode, "none">, THREE.Group>();
+  const makeEffectGroup = (mode: Exclude<SurfaceSuitTestMode, "none">) => {
+    const group = new THREE.Group();
+    group.name = `Illustrative ${mode} test effect`;
+    group.visible = false;
+    group.userData.testEffect = mode;
+    body.add(group);
+    testEffects.set(mode, group);
+    return group;
+  };
+
+  const uvEffect = makeEffectGroup("uv");
+  const uvMaterial = new THREE.LineBasicMaterial({
+    color: "#8d6cff",
+    transparent: true,
+    opacity: 0.82,
+  });
+  for (let ray = 0; ray < 5; ray += 1) {
+    const y = 1.56 + ray * 0.15;
+    const incoming = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        vector(-2.2, y + 1.15, 0.62),
+        vector(-0.24 + ray * 0.11, y, 0.62),
+      ]),
+      uvMaterial.clone(),
+    );
+    incoming.name = `Incident ultraviolet ray ${ray + 1}`;
+    uvEffect.add(incoming);
+    const reflected = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        vector(-0.24 + ray * 0.11, y, 0.62),
+        vector(1.08 + ray * 0.12, y + 0.76, 0.7),
+      ]),
+      uvMaterial.clone(),
+    );
+    reflected.name = `Illustrative reflected ultraviolet ray ${ray + 1}`;
+    uvEffect.add(reflected);
+  }
+
+  const dustEffect = makeEffectGroup("dust");
+  const dustPositions: number[] = [];
+  for (let particle = 0; particle < 90; particle += 1) {
+    const side = particle % 2 === 0 ? -1 : 1;
+    dustPositions.push(
+      side * (0.18 + ((particle * 17) % 37) / 55),
+      -2.12 + ((particle * 23) % 31) / 58,
+      -0.32 + ((particle * 29) % 41) / 58,
+    );
+  }
+  const dustGeometry = new THREE.BufferGeometry();
+  dustGeometry.setAttribute("position", new THREE.Float32BufferAttribute(dustPositions, 3));
+  const dustCloud = new THREE.Points(
+    dustGeometry,
+    new THREE.PointsMaterial({
+      color: "#b08b65",
+      size: 0.035,
+      transparent: true,
+      opacity: 0.78,
+      sizeAttenuation: true,
+    }),
+  );
+  dustCloud.name = "Illustrative diverted dust particles";
+  dustEffect.add(dustCloud);
+
+  const lightEffect = makeEffectGroup("lighting");
+  const lightBeam = new THREE.Mesh(
+    new THREE.ConeGeometry(0.68, 2.8, 40, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: "#a6efff",
+      transparent: true,
+      opacity: 0.12,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  lightBeam.name = "Illustrative helmet task-light beam";
+  lightBeam.position.set(0, 1.78, 1.84);
+  lightBeam.rotation.x = Math.PI / 2;
+  lightEffect.add(lightBeam);
+
+  const signalEffect = makeEffectGroup("signal");
+  for (let ring = 0; ring < 4; ring += 1) {
+    const signalRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.62 + ring * 0.24, 0.012, 8, 64),
+      new THREE.MeshBasicMaterial({
+        color: "#8266e8",
+        transparent: true,
+        opacity: 0.42 - ring * 0.07,
+        depthWrite: false,
+      }),
+    );
+    signalRing.name = `Illustrative radio signal ring ${ring + 1}`;
+    signalRing.position.set(0, 2.18, -0.03);
+    signalRing.rotation.x = Math.PI / 2;
+    signalRing.userData.signalPhase = ring * 0.22;
+    signalEffect.add(signalRing);
+  }
+
+  const hapticEffect = makeEffectGroup("haptic");
+  for (let pulse = 0; pulse < 3; pulse += 1) {
+    const pulseRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.18 + pulse * 0.1, 0.014, 8, 48),
+      new THREE.MeshBasicMaterial({
+        color: "#f2a5d2",
+        transparent: true,
+        opacity: 0.55 - pulse * 0.12,
+        depthWrite: false,
+      }),
+    );
+    pulseRing.name = `Illustrative haptic pulse ${pulse + 1}`;
+    pulseRing.position.set(-0.25, 0.82, 0.64);
+    pulseRing.userData.hapticPhase = pulse * 0.33;
+    hapticEffect.add(pulseRing);
+  }
+
+  const supportEffect = makeEffectGroup("support");
+  for (let ring = 0; ring < 3; ring += 1) {
+    const contactRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.16 + ring * 0.1, 0.014, 8, 48),
+      new THREE.MeshBasicMaterial({
+        color: "#765add",
+        transparent: true,
+        opacity: 0.58 - ring * 0.14,
+        depthWrite: false,
+      }),
+    );
+    contactRing.name = `Illustrative staff contact ring ${ring + 1}`;
+    contactRing.position.set(1.18, -1.9, 0.1);
+    contactRing.rotation.x = Math.PI / 2;
+    contactRing.userData.supportPhase = ring * 0.3;
+    supportEffect.add(contactRing);
+  }
+
+  const selectionHalo = new THREE.Box3Helper(new THREE.Box3(), "#765add");
+  selectionHalo.name = "Selected equipment focus outline";
+  selectionHalo.visible = false;
+  root.add(selectionHalo);
 
   return {
     root,
     body,
     helmetAssembly,
     undercap,
+    backpack,
     partGroups,
     leftArm: leftArmBuild.shoulder,
     rightArm: rightArmBuild.shoulder,
@@ -1332,6 +2348,8 @@ function buildSuit() {
     leftKnee: leftLegBuild.knee,
     rightKnee: rightLegBuild.knee,
     staffGroup,
+    testEffects,
+    selectionHalo,
   } satisfies SuitRig;
 }
 
@@ -1372,6 +2390,41 @@ function applyPantsStyle(root: THREE.Object3D, style: SurfaceSuitPantsStyle) {
   });
 }
 
+function applyTailoringStyles(
+  root: THREE.Object3D,
+  torsoStyle: SurfaceSuitTorsoStyle,
+  bootStyle: SurfaceSuitBootStyle,
+) {
+  root.traverse((object) => {
+    if (typeof object.userData.torsoStyle === "string") {
+      object.visible = object.userData.torsoStyle === torsoStyle;
+    }
+    if (typeof object.userData.bootStyle === "string") {
+      object.visible = object.userData.bootStyle === bootStyle;
+    }
+  });
+}
+
+function applyConceptVariant(rig: SuitRig, conceptId: SurfaceSuitConceptId) {
+  rig.root.traverse((object) => {
+    const conceptVariant = object.userData.conceptVariant as
+      | SurfaceSuitConceptId
+      | undefined;
+    if (conceptVariant) object.visible = conceptVariant === conceptId;
+    if (object instanceof THREE.Mesh && object.userData.conceptBase === "eva") {
+      object.visible = conceptId !== "vector";
+    }
+  });
+  const showEvaArchitecture = conceptId !== "vector";
+  rig.helmetAssembly.visible = showEvaArchitecture;
+  rig.backpack.visible = showEvaArchitecture;
+  rig.undercap.visible = showEvaArchitecture;
+}
+
+function applyTestMode(rig: SuitRig, testMode: SurfaceSuitTestMode) {
+  for (const [mode, group] of rig.testEffects) group.visible = mode === testMode;
+}
+
 function applyPartTransforms(
   rig: SuitRig,
   exploded: boolean,
@@ -1394,7 +2447,9 @@ function applyPartTransforms(
     rig.helmetAssembly.rotation.set(0.08, -0.48, -0.09);
   }
   if (exploded) rig.helmetAssembly.position.y += 0.18;
-  rig.undercap.visible = !helmetAttached;
+  // The wearer remains visible through the pressure visor for EVA concepts.
+  // Concept visibility is applied separately so VECTOR can retain its open-head
+  // Earth-research architecture when the assembly controls are used.
 }
 
 function applyAppearance(
@@ -1402,6 +2457,7 @@ function applyAppearance(
   palette: SurfaceSuitPalette,
   selectedPartId: string | null,
   cutaway: boolean,
+  previewOnlySelectedPart: boolean,
 ) {
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
@@ -1409,9 +2465,7 @@ function applyAppearance(
     if (!role) return;
     const internalPartId = nearestPartId(object);
     const selected = Boolean(
-      internalPartId &&
-        (internalPartId === selectedPartId ||
-          SURFACE_SUIT_PART_ALIASES[internalPartId] === selectedPartId),
+      internalPartId && partMatchesSelection(internalPartId, selectedPartId),
     );
     const cutawaySurface = Boolean(object.userData.cutawaySurface);
     const materials = Array.isArray(object.material)
@@ -1424,7 +2478,12 @@ function applyAppearance(
       material.color.set(roleColor);
       const naturalOpacity =
         role === "visor" ? 0.58 : role === "sunVisor" ? 0.7 : 1;
-      const opacity = cutaway && cutawaySurface ? 0.16 : naturalOpacity;
+      const opacity =
+        selected && previewOnlySelectedPart
+          ? Math.min(naturalOpacity, 0.38)
+          : cutaway && cutawaySurface
+            ? 0.16
+            : naturalOpacity;
       material.opacity = opacity;
       material.transparent = opacity < 1;
       material.depthWrite = opacity >= 0.95;
@@ -1450,7 +2509,14 @@ function applyAppearance(
 
 function disposeObject(root: THREE.Object3D) {
   root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh || object instanceof THREE.Points)) return;
+    if (
+      !(
+        object instanceof THREE.Mesh ||
+        object instanceof THREE.Points ||
+        object instanceof THREE.Line ||
+        object instanceof THREE.LineSegments
+      )
+    ) return;
     object.geometry.dispose();
     const materials = Array.isArray(object.material)
       ? object.material
@@ -1503,20 +2569,46 @@ function selectedLabel(partId: string | null | undefined) {
     : partId.replace(/-/g, " ");
 }
 
+const TEST_MODE_LABELS: Record<SurfaceSuitTestMode, string> = {
+  none: "Test room idle",
+  uv: "Illustrative optical / UV ray path — not a radiation analysis",
+  dust: "Illustrative dust deflection — not validated particle dynamics",
+  lighting: "Illustrative task-light cone — photometry not modeled",
+  signal: "Illustrative antenna signal — RF propagation not modeled",
+  haptic: "Illustrative haptic cue pulse — perception not modeled",
+  support: "Illustrative staff contact — ground forces not calculated",
+};
+
+const CONCEPT_VIEW_LABELS: Record<SurfaceSuitConceptId, string> = {
+  selene: "SELENE lunar EVA concept · common pressure architecture with lunar-specific dust and lighting overlays",
+  areo: "AREO Mars EVA concept · asymmetric geology panels and abrasion overlays",
+  vector: "VECTOR Earth research garment · open head, no pressure enclosure, and no life-support backpack",
+};
+
 export function SurfaceSuitScene({
+  conceptId = "selene",
+  active = true,
   palette,
   bodyPreset = "standard",
   selectedPartId = null,
+  previewOnlySelectedPart = false,
   helmetAttached = true,
   exploded = false,
   cutaway = false,
   walking = false,
+  motionMode,
+  testMode = "none",
   catEars = true,
   staff = false,
   assistModule = false,
   dustModule = true,
   haptics = false,
+  shoulderCamera = false,
+  tetherReel = true,
+  sampleKit = true,
   pantsStyle = "contour",
+  torsoStyle = "streamline",
+  bootStyle = "traverse",
   onSelectPart,
   className = "",
 }: SurfaceSuitSceneProps) {
@@ -1525,13 +2617,20 @@ export function SurfaceSuitScene({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rigRef = useRef<SuitRig | null>(null);
+  const animationLoopRef = useRef<(() => void) | null>(null);
+  const activeRef = useRef(active);
+  const contextLostRef = useRef(false);
+  const conceptIdRef = useRef<SurfaceSuitConceptId>(conceptId);
   const cameraOrbitRef = useRef<CameraOrbit>({
     yaw: 0,
     pitch: 0.08,
     distance: 6.8,
     targetY: 0,
   });
-  const walkingRef = useRef(walking);
+  const resolvedMotionMode = motionMode ?? (walking ? "walk" : "neutral");
+  const motionModeRef = useRef<SurfaceSuitMotionMode>(resolvedMotionMode);
+  const testModeRef = useRef<SurfaceSuitTestMode>(testMode);
+  const selectedPartRef = useRef<string | null>(selectedPartId);
   const onSelectPartRef = useRef(onSelectPart);
   const [webglError, setWebglError] = useState<string | null>(null);
   const [cameraLabel, setCameraLabel] = useState("Front view");
@@ -1566,8 +2665,28 @@ export function SurfaceSuitScene({
   );
 
   useEffect(() => {
-    walkingRef.current = walking;
-  }, [walking]);
+    motionModeRef.current = resolvedMotionMode;
+  }, [resolvedMotionMode]);
+
+  useEffect(() => {
+    conceptIdRef.current = conceptId;
+    const rig = rigRef.current;
+    if (rig) {
+      applyPantsStyle(rig.root, pantsStyle);
+      applyTailoringStyles(rig.root, torsoStyle, bootStyle);
+      applyConceptVariant(rig, conceptId);
+    }
+  }, [bootStyle, conceptId, pantsStyle, torsoStyle]);
+
+  useEffect(() => {
+    testModeRef.current = testMode;
+    const rig = rigRef.current;
+    if (rig) applyTestMode(rig, testMode);
+  }, [testMode]);
+
+  useEffect(() => {
+    selectedPartRef.current = selectedPartId;
+  }, [selectedPartId]);
 
   useEffect(() => {
     onSelectPartRef.current = onSelectPart;
@@ -1605,7 +2724,7 @@ export function SurfaceSuitScene({
     renderer.domElement.setAttribute("role", "img");
     renderer.domElement.setAttribute(
       "aria-label",
-      "Interactive three-dimensional procedural surface suit. Drag to rotate, use the wheel to zoom, or use the camera buttons.",
+      "Interactive three-dimensional procedural missionwear. Drag or touch to rotate, use the wheel or labeled buttons to zoom, and select visible equipment for details.",
     );
     renderer.domElement.style.display = "block";
     renderer.domElement.style.width = "100%";
@@ -1679,6 +2798,8 @@ export function SurfaceSuitScene({
     const rig = buildSuit();
     rigRef.current = rig;
     scene.add(rig.root);
+    applyConceptVariant(rig, conceptIdRef.current);
+    applyTestMode(rig, testModeRef.current);
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -1759,6 +2880,7 @@ export function SurfaceSuitScene({
 
     const handleContextLost = (event: Event) => {
       event.preventDefault();
+      contextLostRef.current = true;
       renderer.setAnimationLoop(null);
       setWebglError(
         "The WebGL context was lost. Reload the page to restart the interactive suit preview.",
@@ -1784,27 +2906,49 @@ export function SurfaceSuitScene({
     resize();
 
     const clock = new THREE.Clock();
-    renderer.setAnimationLoop(() => {
+    const renderFrame = () => {
       const elapsed = clock.getElapsedTime();
-      const targetBlend = walkingRef.current ? 1 : 0;
-      const swing = Math.sin(elapsed * 3.1) * 0.42 * targetBlend;
-      const oppositeSwing = Math.sin(elapsed * 3.1 + Math.PI) * 0.42 * targetBlend;
-      const kneeFlexLeft = Math.max(0, -Math.sin(elapsed * 3.1)) * 0.34 * targetBlend;
-      const kneeFlexRight = Math.max(0, Math.sin(elapsed * 3.1)) * 0.34 * targetBlend;
-      rig.leftLeg.rotation.x = THREE.MathUtils.lerp(rig.leftLeg.rotation.x, swing, 0.14);
+      const activeMotion = motionModeRef.current;
+      const locomotion = activeMotion === "walk" || activeMotion === "run";
+      const frequency = activeMotion === "run" ? 6.2 : 3.1;
+      const stride = activeMotion === "run" ? 0.7 : activeMotion === "walk" ? 0.42 : 0;
+      const swing = Math.sin(elapsed * frequency) * stride;
+      const oppositeSwing = Math.sin(elapsed * frequency + Math.PI) * stride;
+      const kneeDepth = activeMotion === "run" ? 0.58 : 0.34;
+      const kneeFlexLeft = locomotion
+        ? Math.max(0, -Math.sin(elapsed * frequency)) * kneeDepth
+        : activeMotion === "jump"
+          ? 0.68
+          : 0;
+      const kneeFlexRight = locomotion
+        ? Math.max(0, Math.sin(elapsed * frequency)) * kneeDepth
+        : activeMotion === "jump"
+          ? 0.68
+          : 0;
+      const jumpLift =
+        activeMotion === "jump"
+          ? Math.max(0, Math.sin(elapsed * 2.15)) * 0.52
+          : 0;
+      const leftLegTarget = activeMotion === "jump" ? -0.24 : swing;
+      const rightLegTarget = activeMotion === "jump" ? -0.24 : oppositeSwing;
       rig.rightLeg.rotation.x = THREE.MathUtils.lerp(
         rig.rightLeg.rotation.x,
-        oppositeSwing,
+        rightLegTarget,
+        0.14,
+      );
+      rig.leftLeg.rotation.x = THREE.MathUtils.lerp(
+        rig.leftLeg.rotation.x,
+        leftLegTarget,
         0.14,
       );
       rig.leftArm.rotation.x = THREE.MathUtils.lerp(
         rig.leftArm.rotation.x,
-        oppositeSwing * 0.78,
+        activeMotion === "jump" ? -1.12 : oppositeSwing * 0.78,
         0.14,
       );
       rig.rightArm.rotation.x = THREE.MathUtils.lerp(
         rig.rightArm.rotation.x,
-        swing * 0.78,
+        activeMotion === "jump" ? -1.12 : swing * 0.78,
         0.14,
       );
       rig.leftKnee.rotation.x = THREE.MathUtils.lerp(
@@ -1819,12 +2963,12 @@ export function SurfaceSuitScene({
       );
       rig.leftElbow.rotation.x = THREE.MathUtils.lerp(
         rig.leftElbow.rotation.x,
-        walkingRef.current ? 0.18 : 0,
+        activeMotion === "jump" ? 0.34 : locomotion ? 0.18 : 0,
         0.12,
       );
       rig.rightElbow.rotation.x = THREE.MathUtils.lerp(
         rig.rightElbow.rotation.x,
-        walkingRef.current ? 0.18 : 0,
+        activeMotion === "jump" ? 0.34 : locomotion ? 0.18 : 0,
         0.12,
       );
       const bodyBaseY =
@@ -1832,11 +2976,88 @@ export function SurfaceSuitScene({
       rig.body.position.y = THREE.MathUtils.lerp(
         rig.body.position.y,
         bodyBaseY +
-          (walkingRef.current ? Math.abs(Math.sin(elapsed * 3.1)) * 0.035 : 0),
+          (locomotion
+            ? Math.abs(Math.sin(elapsed * frequency)) * (activeMotion === "run" ? 0.06 : 0.035)
+            : jumpLift),
         0.16,
       );
+      rig.body.rotation.x = THREE.MathUtils.lerp(
+        rig.body.rotation.x,
+        activeMotion === "run" ? 0.11 : 0,
+        0.12,
+      );
+
+      const selectedGroups: THREE.Group[] = [];
+      const selected = selectedPartRef.current;
+      if (selected) {
+        for (const [internalId, groups] of rig.partGroups) {
+          if (partMatchesSelection(internalId, selected)) {
+            selectedGroups.push(...groups.filter((group) => isVisibleInHierarchy(group, rig.root)));
+          }
+        }
+      }
+      if (selectedGroups.length > 0) {
+        const bounds = new THREE.Box3();
+        for (const group of selectedGroups) bounds.expandByObject(group, true);
+        if (!bounds.isEmpty()) {
+          rig.selectionHalo.box.copy(bounds).expandByScalar(0.045);
+          rig.selectionHalo.visible = true;
+          const haloMaterials = Array.isArray(rig.selectionHalo.material)
+            ? rig.selectionHalo.material
+            : [rig.selectionHalo.material];
+          for (const haloMaterial of haloMaterials) {
+            haloMaterial.transparent = true;
+            haloMaterial.opacity = 0.38 + Math.sin(elapsed * 4.2) * 0.16;
+          }
+        }
+        const pulse = 0.28 + (Math.sin(elapsed * 4.2) + 1) * 0.24;
+        for (const group of selectedGroups) {
+          group.traverse((object) => {
+            if (!(object instanceof THREE.Mesh)) return;
+            const role = object.userData.materialRole as MaterialRole | undefined;
+            const materials = Array.isArray(object.material) ? object.material : [object.material];
+            for (const material of materials) {
+              if (!(material instanceof THREE.MeshStandardMaterial)) continue;
+              material.emissiveIntensity = role === "light" ? 2.7 + pulse : role === "haptic" ? 0.7 + pulse : pulse;
+            }
+          });
+        }
+      } else {
+        rig.selectionHalo.visible = false;
+      }
+
+      const activeTest = testModeRef.current;
+      const effect = activeTest === "none" ? undefined : rig.testEffects.get(activeTest);
+      if (effect) {
+        effect.traverse((object) => {
+          if (object instanceof THREE.Line) {
+            const material = object.material;
+            material.opacity = 0.55 + (Math.sin(elapsed * 5.5) + 1) * 0.16;
+          }
+          if (!(object instanceof THREE.Mesh)) return;
+          const phase =
+            (object.userData.signalPhase ?? object.userData.hapticPhase ?? object.userData.supportPhase ?? 0) as number;
+          const cycle = (elapsed * (activeTest === "haptic" ? 1.9 : 1.25) + phase) % 1;
+          if (activeTest === "signal" || activeTest === "haptic" || activeTest === "support") {
+            const scale = 0.86 + cycle * 0.38;
+            object.scale.setScalar(scale);
+            if (object.material instanceof THREE.MeshBasicMaterial) {
+              object.material.opacity = Math.max(0.08, 0.58 * (1 - cycle));
+            }
+          } else if (activeTest === "lighting" && object.material instanceof THREE.MeshBasicMaterial) {
+            object.material.opacity = 0.09 + (Math.sin(elapsed * 3.4) + 1) * 0.025;
+          }
+        });
+        if (activeTest === "dust") {
+          effect.rotation.y = Math.sin(elapsed * 1.7) * 0.08;
+          effect.position.y = (elapsed * 0.12) % 0.18;
+        }
+      }
       renderer.render(scene, camera);
-    });
+    };
+    animationLoopRef.current = renderFrame;
+    if (activeRef.current) renderer.setAnimationLoop(renderFrame);
+    else renderer.render(scene, camera);
 
     return () => {
       renderer.setAnimationLoop(null);
@@ -1856,8 +3077,24 @@ export function SurfaceSuitScene({
       sceneRef.current = null;
       cameraRef.current = null;
       rigRef.current = null;
+      animationLoopRef.current = null;
+      contextLostRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    activeRef.current = active;
+    const renderer = rendererRef.current;
+    const renderFrame = animationLoopRef.current;
+    if (!renderer || !renderFrame || contextLostRef.current) return;
+    if (active) renderer.setAnimationLoop(renderFrame);
+    else {
+      renderer.setAnimationLoop(null);
+      const scene = sceneRef.current;
+      const camera = cameraRef.current;
+      if (scene && camera) renderer.render(scene, camera);
+    }
+  }, [active]);
 
   useEffect(() => {
     const rig = rigRef.current;
@@ -1876,20 +3113,55 @@ export function SurfaceSuitScene({
   useEffect(() => {
     const rig = rigRef.current;
     if (!rig) return;
-    setPartVisible(rig, "helmet-cat-ear-pods", catEars);
-    setPartVisible(rig, "walking-staff", staff);
-    setPartVisible(rig, "assistive-lower-body-module", assistModule);
-    setPartVisible(rig, "dust-gaiter-left", dustModule);
-    setPartVisible(rig, "dust-gaiter-right", dustModule);
-    setPartVisible(rig, "haptic-module", haptics);
+    setPartVisible(rig, "helmet-cat-ear-pods", catEars || selectedPartId === "cat-ear-pods");
+    setPartVisible(rig, "walking-staff", staff || selectedPartId === "walking-staff");
+    setPartVisible(
+      rig,
+      "assistive-lower-body-module",
+      assistModule || selectedPartId === "assist-module",
+    );
+    const showDust = dustModule || selectedPartId === "dust-module";
+    setPartVisible(rig, "dust-gaiter-left", showDust);
+    setPartVisible(rig, "dust-gaiter-right", showDust);
+    setPartVisible(rig, "haptic-module", haptics || selectedPartId === "haptic-module");
+    setPartVisible(
+      rig,
+      "shoulder-camera",
+      shoulderCamera || selectedPartId === "shoulder-camera",
+    );
+    setPartVisible(rig, "tether-reel", tetherReel || selectedPartId === "tether-reel");
+    setPartVisible(rig, "sample-kit", sampleKit || selectedPartId === "sample-kit");
     applyPantsStyle(rig.root, pantsStyle);
-  }, [assistModule, catEars, dustModule, haptics, pantsStyle, staff]);
+    applyTailoringStyles(rig.root, torsoStyle, bootStyle);
+    // Style and accessory toggles may reveal meshes; reassert the selected
+    // concept last so VECTOR never regains pressure-suit hardware.
+    applyConceptVariant(rig, conceptIdRef.current);
+  }, [
+    assistModule,
+    bootStyle,
+    catEars,
+    dustModule,
+    haptics,
+    pantsStyle,
+    selectedPartId,
+    sampleKit,
+    shoulderCamera,
+    staff,
+    tetherReel,
+    torsoStyle,
+  ]);
 
   useEffect(() => {
     const rig = rigRef.current;
     if (!rig) return;
-    applyAppearance(rig.root, resolvedPalette, selectedPartId, cutaway);
-  }, [cutaway, resolvedPalette, selectedPartId]);
+    applyAppearance(
+      rig.root,
+      resolvedPalette,
+      selectedPartId,
+      cutaway,
+      previewOnlySelectedPart,
+    );
+  }, [cutaway, previewOnlySelectedPart, resolvedPalette, selectedPartId]);
 
   const setCameraPreset = useCallback(
     (preset: "front" | "back" | "side" | "reset") => {
@@ -1916,6 +3188,22 @@ export function SurfaceSuitScene({
     },
     [],
   );
+
+  const adjustZoom = useCallback((direction: "in" | "out") => {
+    const camera = cameraRef.current;
+    if (!camera) return;
+    const orbit = cameraOrbitRef.current;
+    orbit.distance = clamp(
+      orbit.distance * (direction === "in" ? 0.84 : 1.19),
+      4.7,
+      10.5,
+    );
+    updateCamera(camera, orbit);
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    if (renderer && scene) renderer.render(scene, camera);
+    setCameraLabel(`Custom view · ${direction === "in" ? "zoomed in" : "zoomed out"}`);
+  }, []);
 
   const exportPng = useCallback(() => {
     const renderer = rendererRef.current;
@@ -1977,6 +3265,24 @@ export function SurfaceSuitScene({
           >
             Reset
           </button>
+          <button
+            type="button"
+            className="surface-suit-scene__camera-button"
+            onClick={() => adjustZoom("in")}
+            disabled={Boolean(webglError)}
+            aria-label="Zoom in on missionwear model"
+          >
+            Zoom +
+          </button>
+          <button
+            type="button"
+            className="surface-suit-scene__camera-button"
+            onClick={() => adjustZoom("out")}
+            disabled={Boolean(webglError)}
+            aria-label="Zoom out from missionwear model"
+          >
+            Zoom −
+          </button>
         </div>
         <button
           type="button"
@@ -2023,9 +3329,8 @@ export function SurfaceSuitScene({
             </p>
             <p className="surface-suit-scene__fallback-copy">{webglError}</p>
             <p className="surface-suit-scene__fallback-detail">
-              The configured suit still includes the pressure helmet, layered torso,
-              articulated joints, gloves, boots, life-support backpack, and selected
-              mobility modules.
+              The configuration, equipment inspector, evidence boundaries, and
+              mission compatibility checks remain available below.
             </p>
           </div>
         ) : null}
@@ -2036,9 +3341,17 @@ export function SurfaceSuitScene({
         <p className="surface-suit-scene__selection" aria-live="polite">
           {selectedLabel(selectedPartId)}
         </p>
-        {walking ? (
+        <p className="surface-suit-scene__walking-note">
+          {CONCEPT_VIEW_LABELS[conceptId]}
+        </p>
+        {resolvedMotionMode !== "neutral" ? (
           <p className="surface-suit-scene__walking-note">
-            Illustrative walking preview — not a biomechanical simulation.
+            Illustrative {resolvedMotionMode} preview — not a biomechanical simulation.
+          </p>
+        ) : null}
+        {testMode !== "none" ? (
+          <p className="surface-suit-scene__walking-note" aria-live="polite">
+            {TEST_MODE_LABELS[testMode]}
           </p>
         ) : null}
         <p className="surface-suit-scene__export-status" aria-live="polite">

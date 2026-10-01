@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const viewport: Viewport = {
-  colorScheme: "dark",
-  themeColor: "#040914",
+  colorScheme: "light",
+  themeColor: "#f7f7ff",
 };
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -38,13 +38,18 @@ export async function generateMetadata(): Promise<Metadata> {
       title: siteConfig.title,
       description: siteConfig.description,
       type: "website",
-      images: [{ url: "/og-surface.png", width: 1536, height: 1024 }],
+      images: [{
+        url: "/og.png",
+        width: 1774,
+        height: 887,
+        alt: "Three Rievastra laboratories: orbital flight, rotating black holes, and surface missionwear.",
+      }],
     },
     twitter: {
       card: "summary_large_image",
       title: siteConfig.title,
       description: siteConfig.description,
-      images: ["/og-surface.png"],
+      images: ["/og.png"],
     },
   };
 }
@@ -55,7 +60,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

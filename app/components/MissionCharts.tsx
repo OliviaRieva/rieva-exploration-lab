@@ -46,15 +46,15 @@ interface ChartGeometry {
 const DAY_S = 86_400;
 const CYAN = "#70deef";
 const AMBER = "#ffb85c";
-const GRID = "rgba(159, 190, 205, 0.18)";
-const LABEL = "#9db0c1";
-const CURRENT = "rgba(234, 247, 255, 0.68)";
+const GRID = "rgba(78, 65, 125, 0.16)";
+const LABEL = "#625d74";
+const CURRENT = "rgba(42, 34, 72, 0.62)";
 
 const METRICS: readonly MetricDefinition[] = [
   {
     key: "altitudeM",
-    title: "Altitude above mean sea level",
-    subtitle: "Orbital altitude versus simulated day",
+    title: "Altitude above reference radius",
+    subtitle: "Local orbital altitude versus simulated day",
     unit: "km",
     includeZero: false,
     transform: (value) => value / 1000,
@@ -106,22 +106,21 @@ function interpolateMetric(
   timeS: number,
   metric: MetricDefinition,
 ) {
-  const finite = samples.filter((sample) => validSample(sample, metric));
-  if (finite.length === 0) return null;
-  if (timeS <= finite[0].timeS) return metricValue(finite[0], metric);
-  if (timeS >= finite[finite.length - 1].timeS) {
-    return metricValue(finite[finite.length - 1], metric);
+  if (samples.length === 0) return null;
+  if (timeS <= samples[0].timeS) return metricValue(samples[0], metric);
+  if (timeS >= samples[samples.length - 1].timeS) {
+    return metricValue(samples[samples.length - 1], metric);
   }
 
   let low = 0;
-  let high = finite.length - 1;
+  let high = samples.length - 1;
   while (high - low > 1) {
     const middle = Math.floor((low + high) / 2);
-    if (finite[middle].timeS <= timeS) low = middle;
+    if (samples[middle].timeS <= timeS) low = middle;
     else high = middle;
   }
-  const start = finite[low];
-  const end = finite[high];
+  const start = samples[low];
+  const end = samples[high];
   const duration = end.timeS - start.timeS;
   const mix = duration > 0 ? clamp((timeS - start.timeS) / duration, 0, 1) : 0;
   return (
@@ -135,14 +134,13 @@ function decimate(
   metric: MetricDefinition,
   maximum = 650,
 ) {
-  const finite = samples.filter((sample) => validSample(sample, metric));
-  if (finite.length <= maximum) return finite;
-  const stride = Math.ceil(finite.length / maximum);
+  if (samples.length <= maximum) return samples;
+  const stride = Math.ceil(samples.length / maximum);
   const result: MissionChartSample[] = [];
-  for (let index = 0; index < finite.length; index += stride) {
-    result.push(finite[index]);
+  for (let index = 0; index < samples.length; index += stride) {
+    result.push(samples[index]);
   }
-  const last = finite[finite.length - 1];
+  const last = samples[samples.length - 1];
   if (result[result.length - 1] !== last) result.push(last);
   return result;
 }
@@ -191,7 +189,7 @@ function linePath(
 }
 
 function formatNumber(value: number, decimals: number) {
-  return value.toLocaleString(undefined, {
+  return value.toLocaleString("en-US", {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
@@ -199,7 +197,7 @@ function formatNumber(value: number, decimals: number) {
 
 function formatAxisValue(value: number, span: number) {
   const magnitude = Math.max(Math.abs(value), Math.abs(span));
-  if (magnitude >= 10_000) return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (magnitude >= 10_000) return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
   if (magnitude >= 100) return value.toFixed(0);
   if (magnitude >= 10) return value.toFixed(1).replace(/\.0$/, "");
   return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
@@ -264,9 +262,17 @@ function MetricChart({
   const titleId = `mission-chart-title-${metric.key}-${id}`;
   const descriptionId = `mission-chart-description-${metric.key}-${id}`;
   const clipId = `mission-chart-clip-${metric.key}-${id}`;
+  const referenceFinite = useMemo(
+    () => reference.filter((sample) => validSample(sample, metric)),
+    [metric, reference],
+  );
+  const interruptedFinite = useMemo(
+    () => interrupted.filter((sample) => validSample(sample, metric)),
+    [interrupted, metric],
+  );
   const [minimum, maximum] = useMemo(
-    () => extent(reference, interrupted, metric),
-    [interrupted, metric, reference],
+    () => extent(referenceFinite, interruptedFinite, metric),
+    [interruptedFinite, metric, referenceFinite],
   );
   const plotWidth = GEOMETRY.width - GEOMETRY.left - GEOMETRY.right;
   const plotHeight = GEOMETRY.height - GEOMETRY.top - GEOMETRY.bottom;
@@ -274,23 +280,17 @@ function MetricChart({
   const valueSpan = Math.max(maximum - minimum, Number.EPSILON);
   const displayedTimeS = clamp(currentTimeS, 0, maximumTimeS || 0);
   const currentX = GEOMETRY.left + (displayedTimeS / timeSpan) * plotWidth;
-  const referenceCurrent = interpolateMetric(reference, displayedTimeS, metric);
-  const interruptedCurrent = interpolateMetric(interrupted, displayedTimeS, metric);
+  const referenceCurrent = interpolateMetric(referenceFinite, displayedTimeS, metric);
+  const interruptedCurrent = interpolateMetric(interruptedFinite, displayedTimeS, metric);
   const yFor = (value: number) =>
     GEOMETRY.top + (1 - (value - minimum) / valueSpan) * plotHeight;
-  const referencePath = linePath(
-    reference,
-    metric,
-    timeSpan,
-    minimum,
-    maximum,
+  const referencePath = useMemo(
+    () => linePath(referenceFinite, metric, timeSpan, minimum, maximum),
+    [maximum, metric, minimum, referenceFinite, timeSpan],
   );
-  const interruptedPath = linePath(
-    interrupted,
-    metric,
-    timeSpan,
-    minimum,
-    maximum,
+  const interruptedPath = useMemo(
+    () => linePath(interruptedFinite, metric, timeSpan, minimum, maximum),
+    [interruptedFinite, maximum, metric, minimum, timeSpan],
   );
   const summary = chartSummary(
     metric,
