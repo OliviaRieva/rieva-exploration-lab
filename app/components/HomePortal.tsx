@@ -1,6 +1,8 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
+import { siteConfig } from "../../lib/site-config";
 import styles from "./HomePortal.module.css";
 
 export type PortalDestination = "orbital" | "black-hole" | "surface";
@@ -50,6 +52,38 @@ const STAR_POINTS = [
   [65, 7], [72, 47], [79, 76], [86, 23], [92, 58], [5, 91], [18, 6], [33, 51],
   [47, 94], [62, 38], [75, 15], [95, 87],
 ] as const;
+
+const PORTAL_TRANSITION_MS = 1240;
+
+export function RievaMark({ compact = false }: { compact?: boolean }) {
+  return (
+    <span
+      className={`${styles.brandSymbol} ${compact ? styles.brandSymbolCompact : ""}`}
+      aria-hidden="true"
+    >
+      <span className={styles.brandCore}>R</span>
+      <span className={styles.brandOrbit} />
+      <span className={styles.brandPlanetTrack}>
+        <span className={styles.brandPlanet} />
+      </span>
+    </span>
+  );
+}
+
+export function RievaWordmark({ compact = false }: { compact?: boolean }) {
+  return (
+    <span
+      className={`${styles.brandWord} ${compact ? styles.brandWordCompact : ""}`}
+      role="img"
+      aria-label="RIEVA"
+    >
+      <span aria-hidden="true">RIEV</span>
+      <span className={styles.brandA} aria-hidden="true">
+        <span className={styles.brandADot} />
+      </span>
+    </span>
+  );
+}
 
 function OrbitArtwork() {
   return (
@@ -120,6 +154,7 @@ function PortalArtwork({ destination }: { destination: PortalDestination }) {
 
 export function HomePortal({ onNavigate }: HomePortalProps) {
   const [departing, setDeparting] = useState<PortalDestination | null>(null);
+  const [transitionOrigin, setTransitionOrigin] = useState({ x: 0, y: 0 });
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -128,7 +163,7 @@ export function HomePortal({ onNavigate }: HomePortalProps) {
     };
   }, []);
 
-  const navigate = (destination: PortalDestination) => {
+  const navigate = (destination: PortalDestination, source: HTMLButtonElement) => {
     if (departing) return;
 
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -136,15 +171,27 @@ export function HomePortal({ onNavigate }: HomePortalProps) {
       return;
     }
 
+    const bounds = source.getBoundingClientRect();
+    setTransitionOrigin({
+      x: bounds.left + bounds.width / 2,
+      y: bounds.top + bounds.height * 0.3,
+    });
     setDeparting(destination);
-    timerRef.current = window.setTimeout(() => onNavigate(destination), 760);
+    timerRef.current = window.setTimeout(() => onNavigate(destination), PORTAL_TRANSITION_MS);
   };
+
+  const transitionStyle = {
+    "--transition-x": `${transitionOrigin.x}px`,
+    "--transition-y": `${transitionOrigin.y}px`,
+  } as CSSProperties;
 
   return (
     <main
       className={styles.home}
       data-departing={departing ?? undefined}
-      aria-labelledby="rievastra-home-title"
+      aria-labelledby="rieva-home-title"
+      aria-busy={departing ? "true" : undefined}
+      style={transitionStyle}
     >
       <div className={styles.sky} aria-hidden="true">
         {STAR_POINTS.map(([left, top], index) => (
@@ -163,12 +210,15 @@ export function HomePortal({ onNavigate }: HomePortalProps) {
       </div>
 
       <section className={styles.hero}>
-        <div className={styles.wordmark} aria-label="Rievastra Exploration Systems">
-          <span className={styles.wordmarkGlyph} aria-hidden="true">R</span>
-          <span>RIEVASTRA</span>
+        <div className={styles.wordmark}>
+          <RievaMark />
+          <span className={styles.wordmarkType}>
+            <RievaWordmark />
+            <small>{siteConfig.descriptor}</small>
+          </span>
         </div>
         <p className={styles.eyebrow}>Independent exploration systems laboratory</p>
-        <h1 id="rievastra-home-title">
+        <h1 id="rieva-home-title">
           Design the journey.<br />
           <span>Test the edge.</span>
         </h1>
@@ -183,7 +233,7 @@ export function HomePortal({ onNavigate }: HomePortalProps) {
       <nav
         className={styles.portalGrid}
         id="laboratory-choices"
-        aria-label="Choose a Rievastra laboratory"
+        aria-label="Choose a RIEVA laboratory"
       >
         {PORTALS.map((portal) => {
           const isDeparting = departing === portal.destination;
@@ -194,7 +244,7 @@ export function HomePortal({ onNavigate }: HomePortalProps) {
               data-muted={departing && !isDeparting ? "true" : undefined}
               type="button"
               key={portal.destination}
-              onClick={() => navigate(portal.destination)}
+              onClick={(event) => navigate(portal.destination, event.currentTarget)}
               aria-label={`Open ${portal.title}: ${portal.description}`}
               disabled={Boolean(departing && !isDeparting)}
             >
@@ -222,6 +272,43 @@ export function HomePortal({ onNavigate }: HomePortalProps) {
         {departing ? `Opening ${PORTALS.find((portal) => portal.destination === departing)?.title}` : ""}
       </span>
       <div className={styles.departureWash} aria-hidden="true" />
+      {departing ? (
+        <div className={styles.transitionLayer} data-kind={departing} aria-hidden="true">
+          {departing === "orbital" ? (
+            <>
+              <span className={styles.transitionOrbitGuide} />
+              <span className={styles.transitionRocket}>
+                <span className={styles.rocket}>
+                  <span className={styles.rocketNose} />
+                  <span className={styles.rocketBody} />
+                  <span className={styles.rocketWingLeft} />
+                  <span className={styles.rocketWingRight} />
+                  <span className={styles.rocketFlame} />
+                </span>
+              </span>
+            </>
+          ) : null}
+          {departing === "black-hole" ? (
+            <span className={styles.transitionHole}>
+              <span className={styles.transitionHoleGlow} />
+              <span className={styles.transitionDisk} />
+              <span className={styles.transitionHoleCore} />
+              <span className={styles.transitionProbeTrack}>
+                <span className={styles.transitionProbe} />
+              </span>
+            </span>
+          ) : null}
+          {departing === "surface" ? (
+            <span className={styles.transitionSurface}>
+              <SuitArtwork />
+              <span className={styles.transitionSurfaceBloom} />
+            </span>
+          ) : null}
+          <span className={styles.transitionCaption}>
+            Entering {PORTALS.find((portal) => portal.destination === departing)?.title}
+          </span>
+        </div>
+      ) : null}
     </main>
   );
 }

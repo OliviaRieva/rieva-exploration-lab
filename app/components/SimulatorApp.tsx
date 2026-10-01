@@ -303,7 +303,7 @@ function downloadCsv(result: ComparisonResult, missionName: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `${missionName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "rievastra-mission"}.csv`;
+  anchor.download = `${missionName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "rieva-mission"}.csv`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

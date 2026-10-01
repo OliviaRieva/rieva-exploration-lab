@@ -1,8 +1,8 @@
-# Rievastra — Exploration Systems Laboratory
+# RIEVA — Exploration Systems Laboratory
 
-Rievastra combines three persistent browser laboratories behind an animated home portal. **Orbital Flight** is an electric-propulsion mission study that propagates an uninterrupted reference and an otherwise identical mission with one engine interruption. **Black Hole Laboratory** explores calculated Kerr boundaries and transparent orbit diagnostics around rotating black holes. **Surface Studio — Missionwear** is an independent research-informed aerospace design exhibition with a procedural 3D suit configurator, materials inspector, environmental test room, and transparent mission rules. Switching laboratories preserves each laboratory’s React state.
+RIEVA combines three persistent browser laboratories behind an animated home portal. **Orbital Flight** is an electric-propulsion mission study that propagates an uninterrupted reference and an otherwise identical mission with one engine interruption. **Black Hole Laboratory** explores calculated Kerr boundaries and transparent orbit diagnostics around rotating black holes. **Surface Studio — Missionwear** is an independent research-informed aerospace design exhibition with a Blender-authored 3D suit configurator, materials inspector, environmental test room, and transparent mission rules. Switching laboratories preserves each laboratory’s React state.
 
-The working name combines **Rieva** and *astra*. All public brand text is centralized in [`lib/site-config.ts`](lib/site-config.ts), so the site can be renamed in one edit.
+The **RIEVA** identity is centralized in [`lib/site-config.ts`](lib/site-config.ts), so public naming stays consistent across all three laboratories.
 
 ## Run locally
 
@@ -58,8 +58,8 @@ npm run lint
 
 ### Surface Studio — Missionwear
 
-- Three visibly distinct original concepts: lunar **SELENE** with faceted dust guards and shadow-work lighting, Mars **AREO** with asymmetric geology and abrasion panels, and the lighter open-head Earth-training **VECTOR** loading garment. VECTOR deliberately omits EVA pressure hardware.
-- A real Three.js model built from named procedural meshes—helmet, visors, neck ring, torso layers, joints, gloves, boots, backpack, staff, cat-ear pods, dust module, haptics, and assistive structures.
+- Three visibly distinct original concepts: lunar **MAX** with faceted dust guards and shadow-work lighting, Mars **MALTE** with asymmetric geology and abrasion panels, and the lighter open-head Earth-training **BASTIAN** loading garment. BASTIAN deliberately omits EVA pressure hardware.
+- A real Three.js model loaded from a Blender-authored glTF asset. Its human silhouette is derived from Blender Studio’s CC0 Human Base Meshes v1.4.1, while the garments, helmet, named equipment, seams, joints, boots, backpack, staff, cat-ear pods, dust module, haptics, and assistive structures are original RIEVA geometry. A lightweight procedural fallback remains available if the asset cannot load.
 - Mouse/touch orbit controls, wheel zoom, camera presets, clickable parts, exploded assembly, layered cutaway, detachable helmet in assembly mode, body-proportion presets, and explicitly illustrative walking, running, and jumping.
 - Pearl/silver, white/champagne, and obsidian/gold palettes with visible thermal and optical caveats.
 - Editable outer tailoring and mission accessories without implying that pockets or pants replace pressure architecture.
@@ -119,7 +119,7 @@ The technology presets only change parameters represented by this model. The res
 
 ## Validation
 
-`scripts/validate.py` is independent of the TypeScript implementation and uses only the Python standard library. On 30 September 2026 it measured:
+`scripts/validate.py` is independent of the TypeScript implementation and uses only the Python standard library. On 1 October 2026 it measured:
 
 | Check | Measured | Acceptance |
 |---|---:|---:|
@@ -138,14 +138,14 @@ The TypeScript suite adds common-axis identity, zero-duration interruption equiv
 ```text
 app/
   components/
-    RievastraApp.tsx      state-preserving laboratory navigation
+    RievaApp.tsx           state-preserving laboratory navigation
     HomePortal.tsx         animated three-laboratory homepage
     SimulatorApp.tsx       complete mission console and playback state
     OrbitScene.tsx         interactive projected-3D Canvas scene
     MissionCharts.tsx      accessible computed SVG charts
     KnowledgeSections.tsx  technology, physics, validation, references
     SurfaceStudio.tsx      collection, controls, inspector, rules, research
-    SurfaceSuitScene.tsx   named procedural Three.js suit meshes
+    SurfaceSuitScene.tsx   Blender glTF loader, articulated rig and fallback
     BlackHoleLab.tsx       Kerr controls, diagnosis, equations, references
     BlackHoleScene.tsx     interactive Three.js extreme-gravity scene
   workers/
@@ -159,13 +159,31 @@ lib/
   surface-studio/rules.ts  persistence validation, mass/weight, mission rules
   site-config.ts           single-source brand configuration
 scripts/
+  build_rieva_suits.py    reproducible Blender missionwear build pipeline
   validate.py              independent Python validation
+public/models/
+  rieva-missionwear.glb    authored MAX, MALTE and BASTIAN browser asset
+  README.md                CC0 base-mesh provenance and integration notes
 tests/
   simulation.test.ts       numerical and event checks
   surface-studio.test.ts   persistence, requirements, mass and power checks
   black-hole.test.ts       Kerr boundary and diagnostic checks
   rendered-html.test.mjs   production-render checks
 ```
+
+### Rebuilding the missionwear asset
+
+The checked-in `.glb` is ready to use and does not require Blender at runtime. To regenerate it, download Blender Studio’s **Human Base Meshes v1.4.1** bundle from the official Blender demo-files page, open `human_base_meshes_bundle.blend` with Blender 5, and run:
+
+```bash
+blender -b /path/to/human_base_meshes_bundle.blend \
+  -P scripts/build_rieva_suits.py -- \
+  --out public/models/rieva-missionwear.glb \
+  --blend /tmp/rieva-missionwear.blend \
+  --preview /tmp/rieva-missionwear-preview.png
+```
+
+The generated garment and equipment geometry is original to RIEVA. The anatomical scaffold is Blender Studio’s CC0 base mesh; its provenance is recorded alongside the asset.
 
 ## Primary references
 
@@ -176,6 +194,7 @@ tests/
 - NIST, [standard acceleration of gravity](https://www.nist.gov/pml/special-publication-811/nist-guide-si-appendix-b-conversion-factors/nist-guide-si-appendix-b8).
 - NASA, [HERMeS / AEPS performance overview](https://ntrs.nasa.gov/api/citations/20220007037/downloads/SP2022_438_CASSADY.pdf).
 - Rafalskyi et al., [In-orbit demonstration of an iodine electric propulsion system](https://www.nature.com/articles/s41586-021-04015-y), *Nature* (2021).
+- Blender Studio, [Human Base Meshes and their intended use](https://studio.blender.org/training/realistic-human-research/use-of-base-meshes/) and [official demo files](https://www.blender.org/download/demo-files/) (CC0 base-mesh source used for the missionwear anatomy).
 
 ## Deployment
 

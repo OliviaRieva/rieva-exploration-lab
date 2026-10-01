@@ -576,7 +576,7 @@ export const palettes: SuitPalette[] = [
 export const suitConcepts = [
   {
     id: "selene",
-    name: "SELENE",
+    name: "MAX",
     subtitle: "Lunar fieldwork system",
     mission: "Moon",
     garmentClass: "Surface EVA concept",
@@ -586,7 +586,7 @@ export const suitConcepts = [
   },
   {
     id: "areo",
-    name: "AREO",
+    name: "MALTE",
     subtitle: "Mars geology system",
     mission: "Mars",
     garmentClass: "Surface EVA concept",
@@ -596,7 +596,7 @@ export const suitConcepts = [
   },
   {
     id: "vector",
-    name: "VECTOR",
+    name: "BASTIAN",
     subtitle: "Mobility research garment",
     mission: "Earth training",
     garmentClass: "Earth-based research garment",

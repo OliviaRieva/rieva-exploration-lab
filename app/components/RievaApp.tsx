@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import { siteConfig } from "../../lib/site-config";
 import { BlackHoleLab } from "./BlackHoleLab";
-import { HomePortal, type PortalDestination } from "./HomePortal";
+import {
+  HomePortal,
+  RievaMark,
+  RievaWordmark,
+  type PortalDestination,
+} from "./HomePortal";
 import { SimulatorApp } from "./SimulatorApp";
 import { SurfaceStudio } from "./SurfaceStudio";
 
@@ -52,7 +57,7 @@ function workspaceFromHash(hash: string): Workspace {
   return "home";
 }
 
-export function RievastraApp() {
+export function RievaApp() {
   const [workspace, setWorkspace] = useState<Workspace>("home");
 
   useEffect(() => {
@@ -74,7 +79,7 @@ export function RievastraApp() {
       : WORKSPACE_HASH[next];
     window.history.pushState(null, "", nextUrl);
     window.requestAnimationFrame(() => {
-      const targetId = next === "home" ? "rievastra-home-title" : WORKSPACE_HASH[next].slice(1);
+      const targetId = next === "home" ? "rieva-home-title" : WORKSPACE_HASH[next].slice(1);
       document.getElementById(targetId)?.scrollIntoView({
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
         block: "start",
@@ -129,9 +134,9 @@ export function RievastraApp() {
           aria-label={`${siteConfig.name} — open home`}
           onClick={() => switchWorkspace("home")}
         >
-          <span className="brand-mark" aria-hidden="true">R</span>
+          <RievaMark compact />
           <span>
-            <strong>{siteConfig.wordmark}</strong>
+            <RievaWordmark compact />
             <small>{siteConfig.descriptor}</small>
           </span>
         </button>

@@ -1,7 +1,34 @@
-<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="32" height="32" rx="8" fill="#071522"/>
-  <circle cx="16" cy="16" r="5.2" fill="#0D2E43" stroke="#70DEEF" stroke-width="1.2"/>
-  <ellipse cx="16" cy="16" rx="12" ry="6.4" transform="rotate(-24 16 16)" stroke="#70DEEF" stroke-width="1.2"/>
-  <circle cx="26.4" cy="11.4" r="1.7" fill="#FFB85C"/>
-  <path d="M13.2 20V11.8H17.1C19.1 11.8 20.3 12.8 20.3 14.5C20.3 15.6 19.7 16.4 18.7 16.8L20.8 20H18.6L16.8 17.1H15.2V20H13.2ZM15.2 15.5H16.9C17.8 15.5 18.3 15.2 18.3 14.5C18.3 13.8 17.8 13.5 16.9 13.5H15.2V15.5Z" fill="#EAF7FF"/>
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="chrome" x1="12" y1="10" x2="53" y2="55" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.28" stop-color="#DDE4F2"/>
+      <stop offset="0.55" stop-color="#A98EF2"/>
+      <stop offset="0.77" stop-color="#72C9EE"/>
+      <stop offset="1" stop-color="#F3C7DC"/>
+    </linearGradient>
+    <linearGradient id="orbit" x1="7" y1="47" x2="59" y2="17" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8B68E8"/>
+      <stop offset="0.52" stop-color="#5BC6EE"/>
+      <stop offset="1" stop-color="#F3A9D3"/>
+    </linearGradient>
+    <radialGradient id="planet" cx="0" cy="0" r="1" gradientTransform="translate(0 -2) rotate(90) scale(7)">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.42" stop-color="#FFE3AC"/>
+      <stop offset="0.72" stop-color="#E993D0"/>
+      <stop offset="1" stop-color="#7458D9"/>
+    </radialGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.8"/>
+    </filter>
+  </defs>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="19" fill="#F8F8FF" stroke="#FFFFFF" stroke-width="3"/>
+  <circle cx="32" cy="32" r="22.5" fill="url(#chrome)" fill-opacity="0.2" stroke="#CFC8EA"/>
+  <path d="M22 47V16.5H34.8C42.7 16.5 47.4 20.4 47.4 27C47.4 31.4 45 34.5 40.9 36L48.4 47H40.6L34.2 37.1H29V47H22ZM29 31.4H34.2C38 31.4 40.2 30 40.2 27.1C40.2 24.2 38 22.8 34.2 22.8H29V31.4Z" fill="url(#chrome)" stroke="#5C4A9E" stroke-width="0.8"/>
+  <ellipse cx="32" cy="32" rx="28" ry="12" transform="rotate(-23 32 32)" stroke="url(#orbit)" stroke-width="2"/>
+  <g>
+    <circle cx="59" cy="32" r="6.7" fill="#B889E8" fill-opacity="0.35" filter="url(#soft)"/>
+    <circle cx="59" cy="32" r="4.2" fill="url(#planet)" stroke="#FFFFFF" stroke-width="1.2"/>
+    <animateTransform attributeName="transform" type="rotate" from="-23 32 32" to="337 32 32" dur="7s" repeatCount="indefinite"/>
+  </g>
 </svg>

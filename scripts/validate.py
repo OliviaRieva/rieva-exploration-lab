@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independent numerical validation for the Rievastra orbit simulator.
+"""Independent numerical validation for the RIEVA orbit simulator.
 
 The script intentionally uses only the Python standard library and does not
 import application code.  It integrates a planar Earth-centred state
@@ -696,7 +696,7 @@ def printable_value(value: Any) -> str:
 
 
 def print_human_report(report: Dict[str, Any]) -> None:
-    print("Rievastra independent physics validation")
+    print("RIEVA independent physics validation")
     print("=" * 42)
     for check in report["checks"]:
         status = "PASS" if check["passed"] else "FAIL"

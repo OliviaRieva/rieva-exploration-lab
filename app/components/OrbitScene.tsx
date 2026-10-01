@@ -364,58 +364,386 @@ function ringPoints(radiusM: number, projection: Projection, count = 180) {
   });
 }
 
-function drawEarthGrid(
+interface SurfacePoint {
+  x: number;
+  y: number;
+  foreshortening: number;
+}
+
+function visibleSurfacePoint(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  longitude: number,
+  latitude: number,
+  rotation: number,
+): SurfacePoint | null {
+  const relativeLongitude =
+    ((((longitude + rotation + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
+  const foreshortening = Math.cos(relativeLongitude);
+  if (foreshortening <= 0.035) return null;
+  return {
+    x: centerX + Math.sin(relativeLongitude) * Math.cos(latitude) * radius,
+    y: centerY + Math.sin(latitude) * radius * 0.92,
+    foreshortening,
+  };
+}
+
+function drawSurfaceEllipse(
   context: CanvasRenderingContext2D,
-  earthRadiusM: number,
-  projection: Projection,
-  earthRotation: number,
+  point: SurfacePoint,
+  radius: number,
+  color: string,
+  rotation = 0,
 ) {
   context.save();
-  context.strokeStyle = "rgba(164, 226, 238, 0.2)";
-  context.lineWidth = 0.7;
-  const sampleCount = 96;
+  context.translate(point.x, point.y);
+  context.rotate(rotation);
+  context.scale(Math.max(0.12, point.foreshortening), 1);
+  context.fillStyle = color;
+  context.beginPath();
+  context.ellipse(0, 0, radius, radius * 0.64, 0, 0, TAU);
+  context.fill();
+  context.restore();
+}
 
-  for (let latitudeIndex = -2; latitudeIndex <= 2; latitudeIndex += 1) {
-    const latitude = (latitudeIndex * Math.PI) / 10;
-    const latitudeRadius = Math.cos(latitude) * earthRadiusM;
-    const z = Math.sin(latitude) * earthRadiusM;
-    const points: ProjectedPoint[] = [];
-    for (let index = 0; index <= sampleCount; index += 1) {
-      const longitude = (index / sampleCount) * TAU + earthRotation;
-      points.push(
-        projectPoint(
-          {
-            x: Math.cos(longitude) * latitudeRadius,
-            y: Math.sin(longitude) * latitudeRadius,
-            z,
-          },
-          projection,
-        ),
-      );
-    }
-    drawSegmentPass(context, points, true, "rgba(164, 226, 238, 0.2)", 0.7);
+function drawRockySurface(
+  context: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  rotation: number,
+  bodyName: string,
+) {
+  const isMars = bodyName === "Mars";
+  const craterCount = isMars ? 13 : bodyName === "Mercury" ? 24 : 20;
+
+  for (let index = 0; index < craterCount; index += 1) {
+    const longitude = (((index * 0.61803398875 + 0.11) % 1) - 0.5) * TAU;
+    const latitude = Math.asin((((index * 0.41421356237 + 0.29) % 1) - 0.5) * 1.7);
+    const point = visibleSurfacePoint(
+      centerX,
+      centerY,
+      radius,
+      longitude,
+      latitude,
+      rotation,
+    );
+    if (!point) continue;
+    const craterRadius = radius * (0.018 + ((index * 17) % 7) * 0.0045);
+    drawSurfaceEllipse(
+      context,
+      { ...point, x: point.x + craterRadius * 0.18 },
+      craterRadius * 1.08,
+      isMars ? "rgba(74, 35, 34, 0.34)" : "rgba(28, 25, 38, 0.34)",
+      index * 0.37,
+    );
+    drawSurfaceEllipse(
+      context,
+      { ...point, x: point.x - craterRadius * 0.12, y: point.y - craterRadius * 0.1 },
+      craterRadius * 0.72,
+      isMars ? "rgba(247, 169, 119, 0.18)" : "rgba(248, 241, 226, 0.2)",
+      index * 0.37,
+    );
   }
 
-  for (let longitudeIndex = 0; longitudeIndex < 12; longitudeIndex += 1) {
-    const longitude = (longitudeIndex / 12) * TAU + earthRotation;
-    const points: ProjectedPoint[] = [];
-    for (let index = 0; index <= sampleCount; index += 1) {
-      const latitude = -Math.PI / 2 + (index / sampleCount) * Math.PI;
-      const latitudeRadius = Math.cos(latitude) * earthRadiusM;
-      points.push(
-        projectPoint(
-          {
-            x: Math.cos(longitude) * latitudeRadius,
-            y: Math.sin(longitude) * latitudeRadius,
-            z: Math.sin(latitude) * earthRadiusM,
-          },
-          projection,
-        ),
+  if (isMars) {
+    const darkRegions = [
+      [-0.7, -0.14, 0.19],
+      [0.32, 0.11, 0.14],
+      [1.82, -0.23, 0.17],
+    ] as const;
+    for (const [longitude, latitude, size] of darkRegions) {
+      const point = visibleSurfacePoint(
+        centerX,
+        centerY,
+        radius,
+        longitude,
+        latitude,
+        rotation,
       );
+      if (point) {
+        drawSurfaceEllipse(
+          context,
+          point,
+          radius * size,
+          "rgba(67, 35, 43, 0.33)",
+          -0.22,
+        );
+      }
     }
-    drawSegmentPass(context, points, true, "rgba(164, 226, 238, 0.17)", 0.7);
+    context.fillStyle = "rgba(244, 230, 215, 0.74)";
+    context.beginPath();
+    context.ellipse(
+      centerX,
+      centerY - radius * 0.8,
+      radius * 0.34,
+      radius * 0.095,
+      0,
+      0,
+      TAU,
+    );
+    context.fill();
+  }
+}
+
+function drawEarthSurface(
+  context: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  rotation: number,
+) {
+  const landMasses = [
+    [-2.34, -0.12, 0.28, "rgba(116, 145, 91, 0.88)"],
+    [-1.92, 0.42, 0.22, "rgba(165, 157, 96, 0.84)"],
+    [-0.22, 0.12, 0.3, "rgba(111, 143, 83, 0.9)"],
+    [0.62, -0.34, 0.2, "rgba(165, 142, 87, 0.82)"],
+    [1.45, 0.2, 0.32, "rgba(98, 132, 79, 0.88)"],
+    [2.31, -0.38, 0.17, "rgba(177, 151, 91, 0.78)"],
+  ] as const;
+
+  for (const [longitude, latitude, size, color] of landMasses) {
+    const point = visibleSurfacePoint(
+      centerX,
+      centerY,
+      radius,
+      longitude,
+      latitude,
+      rotation,
+    );
+    if (!point) continue;
+    drawSurfaceEllipse(context, point, radius * size, color, longitude * 0.28);
+    drawSurfaceEllipse(
+      context,
+      { ...point, x: point.x + radius * size * 0.33, y: point.y + radius * size * 0.22 },
+      radius * size * 0.56,
+      color,
+      -longitude * 0.18,
+    );
+  }
+
+  context.fillStyle = "rgba(235, 246, 249, 0.82)";
+  context.beginPath();
+  context.ellipse(centerX, centerY - radius * 0.89, radius * 0.32, radius * 0.08, 0, 0, TAU);
+  context.fill();
+  context.beginPath();
+  context.ellipse(centerX, centerY + radius * 0.88, radius * 0.38, radius * 0.075, 0, 0, TAU);
+  context.fill();
+
+  context.save();
+  context.strokeStyle = "rgba(248, 252, 255, 0.48)";
+  context.lineCap = "round";
+  for (let band = 0; band < 7; band += 1) {
+    const y = centerY + Math.sin(band * 2.17 + rotation * 0.35) * radius * 0.65;
+    const x = centerX + Math.cos(band * 1.31 + rotation) * radius * 0.16;
+    context.globalAlpha = 0.26 + (band % 3) * 0.07;
+    context.lineWidth = Math.max(0.7, radius * 0.014);
+    context.beginPath();
+    context.moveTo(x - radius * 0.42, y);
+    context.bezierCurveTo(
+      x - radius * 0.18,
+      y - radius * 0.08,
+      x + radius * 0.14,
+      y + radius * 0.08,
+      x + radius * 0.39,
+      y - radius * 0.015,
+    );
+    context.stroke();
   }
   context.restore();
+}
+
+function drawAtmosphericBands(
+  context: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  rotation: number,
+  bodyName: string,
+) {
+  const palettes: Record<string, readonly string[]> = {
+    Venus: ["rgba(255, 238, 188, 0.42)", "rgba(174, 103, 62, 0.3)", "rgba(255, 216, 149, 0.34)"],
+    Jupiter: ["rgba(255, 225, 188, 0.52)", "rgba(125, 73, 63, 0.44)", "rgba(229, 178, 139, 0.48)", "rgba(249, 239, 211, 0.5)"],
+    Saturn: ["rgba(255, 239, 190, 0.4)", "rgba(139, 108, 75, 0.25)", "rgba(231, 204, 148, 0.42)"],
+    Uranus: ["rgba(222, 255, 255, 0.2)", "rgba(72, 151, 166, 0.14)", "rgba(190, 244, 247, 0.22)"],
+    Neptune: ["rgba(151, 200, 255, 0.3)", "rgba(24, 49, 130, 0.24)", "rgba(224, 244, 255, 0.2)"],
+  };
+  const palette = palettes[bodyName] ?? palettes.Venus;
+  const bandCount = bodyName === "Jupiter" ? 15 : bodyName === "Saturn" ? 13 : 10;
+  context.save();
+  context.lineCap = "round";
+  for (let index = 0; index < bandCount; index += 1) {
+    const normalized = -0.86 + (index / Math.max(1, bandCount - 1)) * 1.72;
+    const halfWidth = Math.sqrt(Math.max(0, 1 - normalized * normalized)) * radius;
+    const drift = Math.sin(rotation * (index % 2 === 0 ? 0.8 : -0.54) + index * 1.9) * radius * 0.025;
+    const y = centerY + normalized * radius;
+    context.strokeStyle = palette[index % palette.length];
+    context.lineWidth = Math.max(1, radius * (bodyName === "Jupiter" ? 0.075 : 0.06));
+    context.beginPath();
+    context.moveTo(centerX - halfWidth, y + drift);
+    context.bezierCurveTo(
+      centerX - halfWidth * 0.42,
+      y - radius * 0.018,
+      centerX + halfWidth * 0.34,
+      y + radius * 0.022,
+      centerX + halfWidth,
+      y - drift * 0.42,
+    );
+    context.stroke();
+  }
+  context.restore();
+
+  if (bodyName === "Jupiter") {
+    const storm = visibleSurfacePoint(centerX, centerY, radius, -0.62, 0.34, rotation);
+    if (storm) {
+      drawSurfaceEllipse(context, storm, radius * 0.13, "rgba(143, 57, 48, 0.78)", -0.08);
+      drawSurfaceEllipse(context, storm, radius * 0.086, "rgba(236, 152, 120, 0.58)", -0.08);
+    }
+  } else if (bodyName === "Neptune") {
+    const storm = visibleSurfacePoint(centerX, centerY, radius, 1.4, 0.2, rotation);
+    if (storm) {
+      drawSurfaceEllipse(context, storm, radius * 0.1, "rgba(14, 28, 83, 0.7)", 0.08);
+    }
+  }
+}
+
+function drawPlanetSurface(
+  context: CanvasRenderingContext2D,
+  bodyName: string,
+  bodyVisual: typeof DEFAULT_BODY_VISUAL,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  rotation: number,
+) {
+  if (!Number.isFinite(radius) || radius <= 0) return;
+  context.save();
+  context.beginPath();
+  context.arc(centerX, centerY, radius, 0, TAU);
+  context.clip();
+
+  const base = context.createRadialGradient(
+    centerX + radius * 0.34,
+    centerY - radius * 0.32,
+    radius * 0.04,
+    centerX,
+    centerY,
+    radius * 1.08,
+  );
+  base.addColorStop(0, bodyVisual.light);
+  base.addColorStop(0.45, bodyVisual.mid);
+  base.addColorStop(1, bodyVisual.dark);
+  context.fillStyle = base;
+  context.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
+
+  if (bodyName === "Earth") {
+    drawEarthSurface(context, centerX, centerY, radius, rotation);
+  } else if (bodyName === "Mars" || bodyName === "Moon" || bodyName === "Mercury") {
+    drawRockySurface(context, centerX, centerY, radius, rotation, bodyName);
+  } else {
+    drawAtmosphericBands(context, centerX, centerY, radius, rotation, bodyName);
+  }
+
+  const daylight = context.createLinearGradient(
+    centerX - radius * 0.86,
+    centerY + radius * 0.72,
+    centerX + radius * 0.86,
+    centerY - radius * 0.72,
+  );
+  daylight.addColorStop(0, "rgba(1, 3, 12, 0.88)");
+  daylight.addColorStop(0.42, "rgba(3, 5, 18, 0.48)");
+  daylight.addColorStop(0.64, "rgba(10, 12, 28, 0.05)");
+  daylight.addColorStop(1, "rgba(255, 246, 224, 0.12)");
+  context.fillStyle = daylight;
+  context.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
+
+  const limb = context.createRadialGradient(
+    centerX,
+    centerY,
+    radius * 0.38,
+    centerX,
+    centerY,
+    radius,
+  );
+  limb.addColorStop(0, "rgba(0, 0, 0, 0)");
+  limb.addColorStop(0.72, "rgba(0, 0, 0, 0.04)");
+  limb.addColorStop(1, "rgba(0, 0, 8, 0.46)");
+  context.fillStyle = limb;
+  context.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
+  context.restore();
+}
+
+function drawAtmosphericLimb(
+  context: CanvasRenderingContext2D,
+  bodyName: string,
+  atmosphereColor: string,
+  centerX: number,
+  centerY: number,
+  radius: number,
+) {
+  const airless = bodyName === "Mercury" || bodyName === "Moon";
+  const thin = bodyName === "Mars";
+  context.save();
+  if (!airless) {
+    context.strokeStyle = atmosphereColor;
+    context.shadowColor = atmosphereColor;
+    context.shadowBlur = thin ? 8 : 17;
+    context.globalAlpha = thin ? 0.52 : 0.88;
+    context.lineWidth = thin ? 1.1 : Math.max(1.5, radius * 0.025);
+    context.beginPath();
+    context.arc(centerX, centerY, radius * 1.012, 0, TAU);
+    context.stroke();
+    context.globalAlpha *= 0.42;
+    context.lineWidth = Math.max(1, radius * 0.018);
+    context.beginPath();
+    context.arc(centerX, centerY, radius * (thin ? 1.035 : 1.055), 0, TAU);
+    context.stroke();
+  }
+
+  context.shadowBlur = 0;
+  const sunlight = context.createLinearGradient(
+    centerX - radius,
+    centerY + radius,
+    centerX + radius,
+    centerY - radius,
+  );
+  sunlight.addColorStop(0, "rgba(255,255,255,0)");
+  sunlight.addColorStop(0.63, "rgba(255,255,255,0)");
+  sunlight.addColorStop(1, airless ? "rgba(255,235,211,0.48)" : "rgba(225,250,255,0.82)");
+  context.strokeStyle = sunlight;
+  context.globalAlpha = 0.78;
+  context.lineWidth = airless ? 0.8 : 1.45;
+  context.beginPath();
+  context.arc(centerX, centerY, radius * 1.003, 0, TAU);
+  context.stroke();
+  context.restore();
+}
+
+function drawSaturnRings(
+  context: CanvasRenderingContext2D,
+  radiusM: number,
+  projection: Projection,
+  front: boolean,
+) {
+  const bands = [
+    { radius: 1.39, width: 6.2, color: "rgba(171, 145, 104, 0.5)" },
+    { radius: 1.54, width: 8.4, color: "rgba(226, 207, 162, 0.72)" },
+    { radius: 1.72, width: 5.8, color: "rgba(250, 232, 190, 0.78)" },
+    { radius: 1.88, width: 2.8, color: "rgba(117, 94, 84, 0.52)" },
+    { radius: 2.02, width: 4.1, color: "rgba(220, 198, 159, 0.54)" },
+  ] as const;
+  for (const band of bands) {
+    drawSegmentPass(
+      context,
+      ringPoints(radiusM * band.radius, projection, 240),
+      front,
+      band.color,
+      band.width,
+      [],
+      front ? 0.96 : 0.58,
+    );
+  }
 }
 
 function directionFor(
@@ -646,11 +974,29 @@ function drawScene(
   context.fillRect(0, 0, width, height);
 
   context.save();
-  for (let index = 0; index < 90; index += 1) {
+  const stellarHaze = context.createLinearGradient(0, height, width, 0);
+  stellarHaze.addColorStop(0, "rgba(83, 57, 153, 0)");
+  stellarHaze.addColorStop(0.48, "rgba(105, 82, 170, 0.055)");
+  stellarHaze.addColorStop(0.55, "rgba(86, 172, 205, 0.04)");
+  stellarHaze.addColorStop(1, "rgba(83, 57, 153, 0)");
+  context.fillStyle = stellarHaze;
+  context.fillRect(0, 0, width, height);
+  for (let index = 0; index < 132; index += 1) {
     const x = (((index * 577) % 997) / 997) * width;
     const y = (((index * 293 + 71) % 991) / 991) * height;
-    const radius = index % 11 === 0 ? 1.05 : 0.55;
-    context.fillStyle = index % 7 === 0 ? "rgba(112, 222, 239, 0.55)" : "rgba(226, 241, 247, 0.32)";
+    const radius = index % 23 === 0 ? 1.25 : index % 7 === 0 ? 0.82 : 0.43;
+    context.fillStyle =
+      index % 17 === 0
+        ? "rgba(255, 216, 181, 0.6)"
+        : index % 7 === 0
+          ? "rgba(156, 221, 255, 0.58)"
+          : "rgba(232, 239, 255, 0.32)";
+    if (radius > 1) {
+      context.shadowColor = context.fillStyle;
+      context.shadowBlur = 5;
+    } else {
+      context.shadowBlur = 0;
+    }
     context.beginPath();
     context.arc(x, y, radius, 0, TAU);
     context.fill();
@@ -675,7 +1021,30 @@ function drawScene(
   context.beginPath();
   context.arc(sunX, sunY, sunRadius * 4.2, 0, TAU);
   context.fill();
-  context.fillStyle = "#fff8dc";
+  context.save();
+  context.translate(sunX, sunY);
+  context.strokeStyle = "rgba(255, 216, 144, 0.18)";
+  context.lineWidth = 0.7;
+  for (let ray = 0; ray < 12; ray += 1) {
+    context.rotate(TAU / 12);
+    context.beginPath();
+    context.moveTo(sunRadius * 1.28, 0);
+    context.lineTo(sunRadius * (2.2 + (ray % 3) * 0.26), 0);
+    context.stroke();
+  }
+  context.restore();
+  const sunDisc = context.createRadialGradient(
+    sunX - sunRadius * 0.3,
+    sunY - sunRadius * 0.35,
+    0,
+    sunX,
+    sunY,
+    sunRadius,
+  );
+  sunDisc.addColorStop(0, "#ffffff");
+  sunDisc.addColorStop(0.56, "#fff4c8");
+  sunDisc.addColorStop(1, "#ffc66f");
+  context.fillStyle = sunDisc;
   context.beginPath();
   context.arc(sunX, sunY, sunRadius, 0, TAU);
   context.fill();
@@ -750,6 +1119,10 @@ function drawScene(
   drawSegmentPass(context, outageRecentPoints, false, AMBER, 5, [], 0.1);
 
   const earthScreenRadius = options.earthRadiusM * projection.scale;
+  const bodyRotation =
+    (options.currentTimeS / Math.max(1, Math.abs(options.bodyRotationPeriodS))) *
+    TAU *
+    Math.sign(options.bodyRotationPeriodS || 1);
   const atmosphere = context.createRadialGradient(
     projection.centerX,
     projection.centerY,
@@ -772,60 +1145,29 @@ function drawScene(
   );
   context.fill();
 
-  const earth = context.createRadialGradient(
-    projection.centerX - earthScreenRadius * 0.3,
-    projection.centerY - earthScreenRadius * 0.32,
-    earthScreenRadius * 0.08,
+  if (options.bodyName === "Saturn") {
+    drawSaturnRings(context, options.earthRadiusM, projection, false);
+  }
+  drawPlanetSurface(
+    context,
+    options.bodyName,
+    options.bodyVisual,
+    projection.centerX,
+    projection.centerY,
+    earthScreenRadius,
+    bodyRotation,
+  );
+  drawAtmosphericLimb(
+    context,
+    options.bodyName,
+    options.bodyVisual.atmosphere,
     projection.centerX,
     projection.centerY,
     earthScreenRadius,
   );
-  earth.addColorStop(0, options.bodyVisual.light);
-  earth.addColorStop(0.42, options.bodyVisual.mid);
-  earth.addColorStop(0.76, options.bodyVisual.dark);
-  earth.addColorStop(1, "#070713");
-  const saturnRing =
-    options.bodyName === "Saturn"
-      ? ringPoints(options.earthRadiusM * 1.72, projection, 220)
-      : [];
-  drawSegmentPass(
-    context,
-    saturnRing,
-    false,
-    "rgba(236, 214, 171, 0.42)",
-    4.5,
-    [],
-    0.72,
-  );
-  context.fillStyle = earth;
-  context.strokeStyle = "rgba(112, 222, 239, 0.62)";
-  context.lineWidth = 1;
-  context.beginPath();
-  context.arc(
-    projection.centerX,
-    projection.centerY,
-    earthScreenRadius,
-    0,
-    TAU,
-  );
-  context.fill();
-  context.stroke();
-
-  drawEarthGrid(
-    context,
-    options.earthRadiusM,
-    projection,
-    (options.currentTimeS / options.bodyRotationPeriodS) * TAU,
-  );
-  drawSegmentPass(
-    context,
-    saturnRing,
-    true,
-    "rgba(255, 237, 192, 0.72)",
-    5.2,
-    [],
-    0.9,
-  );
+  if (options.bodyName === "Saturn") {
+    drawSaturnRings(context, options.earthRadiusM, projection, true);
+  }
 
   drawSegmentPass(context, targetRing, true, PALE, 1.35, [6, 7], 0.7);
   drawSegmentPass(context, initialRing, true, CYAN, 0.9, [2, 6], 0.34);

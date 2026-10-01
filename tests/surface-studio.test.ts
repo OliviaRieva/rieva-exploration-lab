@@ -79,7 +79,7 @@ test("accessory runtime excludes life support and applies assumed usable energy"
   assert.ok(Math.abs(result.accessoryRuntimeH! - 21.25) < 1e-10);
 });
 
-test("VECTOR cannot be described as lunar EVA equipment", () => {
+test("BASTIAN cannot be described as lunar EVA equipment", () => {
   const result = evaluateStudioConfiguration({
     ...DEFAULT_STUDIO_CONFIGURATION,
     conceptId: "vector",
@@ -89,7 +89,7 @@ test("VECTOR cannot be described as lunar EVA equipment", () => {
   assert.match(result.missingRequirements.join(" "), /life-support/i);
 });
 
-test("VECTOR persistence removes accessories that its open garment cannot display", () => {
+test("BASTIAN persistence removes accessories that its open garment cannot display", () => {
   const normalized = normalizeStudioConfiguration({
     ...DEFAULT_STUDIO_CONFIGURATION,
     conceptId: "vector",

@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export type SurfaceSuitBodyPreset = "compact" | "standard" | "tall";
 export type SurfaceSuitPantsStyle = "contour" | "field" | "mobility";
@@ -151,7 +152,7 @@ export const SURFACE_SUIT_PART_LABELS: Readonly<
   "walking-staff": "Walking staff",
   "assistive-lower-body-module": "Assistive lower-body module",
   "haptic-module": "Haptic feedback module",
-  "vector-monitoring": "VECTOR garment monitoring sensors",
+  "vector-monitoring": "BASTIAN garment monitoring sensors",
   "shoulder-camera": "Shoulder documentation camera",
   "tether-reel": "Retractable tether reel",
   "sample-kit": "Sealed sample and tool kit",
@@ -233,7 +234,7 @@ interface SuitRig {
   helmetAssembly: THREE.Group;
   undercap: THREE.Object3D;
   backpack: THREE.Group;
-  partGroups: Map<SurfaceSuitPartId, THREE.Group[]>;
+  partGroups: Map<SurfaceSuitPartId, THREE.Object3D[]>;
   leftArm: THREE.Group;
   rightArm: THREE.Group;
   leftElbow: THREE.Group;
@@ -245,6 +246,22 @@ interface SuitRig {
   staffGroup: THREE.Group;
   testEffects: Map<Exclude<SurfaceSuitTestMode, "none">, THREE.Group>;
   selectionHalo: THREE.Box3Helper;
+  authoredContainer: THREE.Group | null;
+  authoredRigs: Map<SurfaceSuitConceptId, AuthoredArticulation>;
+}
+
+interface AuthoredArticulation {
+  root: THREE.Object3D;
+  body: THREE.Object3D;
+  leftArm: THREE.Object3D;
+  rightArm: THREE.Object3D;
+  leftElbow: THREE.Object3D;
+  rightElbow: THREE.Object3D;
+  leftLeg: THREE.Object3D;
+  rightLeg: THREE.Object3D;
+  leftKnee: THREE.Object3D;
+  rightKnee: THREE.Object3D;
+  helmetAssembly: THREE.Object3D | null;
 }
 
 interface CameraOrbit {
@@ -338,7 +355,7 @@ function createMaterial(role: MaterialRole, palette: SurfaceSuitPalette) {
 
 function makePart(
   parent: THREE.Object3D,
-  registry: Map<SurfaceSuitPartId, THREE.Group[]>,
+  registry: Map<SurfaceSuitPartId, THREE.Object3D[]>,
   id: SurfaceSuitPartId,
   name: string,
   position = vector(),
@@ -509,7 +526,7 @@ function anatomicalTorsoGeometry() {
 
 function buildArm(
   body: THREE.Group,
-  registry: Map<SurfaceSuitPartId, THREE.Group[]>,
+  registry: Map<SurfaceSuitPartId, THREE.Object3D[]>,
   side: -1 | 1,
 ) {
   const sideName = side < 0 ? "left" : "right";
@@ -755,7 +772,7 @@ function addPantsStyleGeometry(
 
 function buildLeg(
   body: THREE.Group,
-  registry: Map<SurfaceSuitPartId, THREE.Group[]>,
+  registry: Map<SurfaceSuitPartId, THREE.Object3D[]>,
   side: -1 | 1,
 ) {
   const sideName = side < 0 ? "left" : "right";
@@ -1045,8 +1062,8 @@ function buildLeg(
   return { leg, knee, boot };
 }
 
-function buildSuit() {
-  const partGroups = new Map<SurfaceSuitPartId, THREE.Group[]>();
+function buildSuit(): SuitRig {
+  const partGroups = new Map<SurfaceSuitPartId, THREE.Object3D[]>();
   const root = new THREE.Group();
   root.name = "Surface suit avatar root";
   const body = new THREE.Group();
@@ -2350,6 +2367,8 @@ function buildSuit() {
     staffGroup,
     testEffects,
     selectionHalo,
+    authoredContainer: null,
+    authoredRigs: new Map(),
   } satisfies SuitRig;
 }
 
@@ -2447,6 +2466,19 @@ function applyPartTransforms(
     rig.helmetAssembly.rotation.set(0.08, -0.48, -0.09);
   }
   if (exploded) rig.helmetAssembly.position.y += 0.18;
+  for (const authored of rig.authoredRigs.values()) {
+    const helmet = authored.helmetAssembly;
+    if (!helmet) continue;
+    const authoredBase = helmet.userData.basePosition as THREE.Vector3 | undefined;
+    const authoredRotation = helmet.userData.baseRotation as THREE.Euler | undefined;
+    if (authoredBase) helmet.position.copy(authoredBase);
+    if (authoredRotation) helmet.rotation.copy(authoredRotation);
+    if (!helmetAttached) {
+      helmet.position.add(vector(0.48, -0.04, 0.1));
+      helmet.rotation.set(0.08, -0.48, -0.09);
+    }
+    if (exploded) helmet.position.y += 0.08;
+  }
   // The wearer remains visible through the pressure visor for EVA concepts.
   // Concept visibility is applied separately so VECTOR can retain its open-head
   // Earth-research architecture when the assembly controls are used.
@@ -2557,6 +2589,151 @@ function makeStarField() {
   return points;
 }
 
+const SURFACE_SUIT_PART_IDS = new Set<SurfaceSuitPartId>(
+  Object.keys(SURFACE_SUIT_PART_LABELS) as SurfaceSuitPartId[],
+);
+
+function authoredGroupWithRole(
+  root: THREE.Object3D,
+  role: string,
+): THREE.Object3D | null {
+  const matches: THREE.Object3D[] = [];
+  root.traverse((object) => {
+    if (object.userData.rig_role === role) {
+      matches.push(object);
+    }
+  });
+  return matches[0] ?? null;
+}
+
+function authoredGroupWithProperty(
+  root: THREE.Object3D,
+  property: string,
+  value: unknown,
+): THREE.Object3D | null {
+  const matches: THREE.Object3D[] = [];
+  root.traverse((object) => {
+    if (object.userData[property] === value) {
+      matches.push(object);
+    }
+  });
+  return matches[0] ?? null;
+}
+
+function installAuthoredSuits(rig: SuitRig, loadedScene: THREE.Group) {
+  const container = new THREE.Group();
+  container.name = "Blender-authored RIEVA missionwear";
+  container.userData.assetKind = "blender-authored";
+  container.add(loadedScene);
+
+  const initialBounds = new THREE.Box3().setFromObject(loadedScene, true);
+  const initialSize = initialBounds.getSize(new THREE.Vector3());
+  const center = initialBounds.getCenter(new THREE.Vector3());
+  const authoredScale = initialSize.y > 0 ? 4.38 / initialSize.y : 2.58;
+  container.scale.setScalar(authoredScale);
+  container.position.set(
+    -center.x * authoredScale,
+    -2.18 - initialBounds.min.y * authoredScale,
+    -center.z * authoredScale,
+  );
+  container.userData.authoredScale = authoredScale;
+  container.userData.basePosition = container.position.clone();
+
+  loadedScene.traverse((object) => {
+    const partId = object.userData.part_id;
+    if (
+      typeof partId === "string" &&
+      SURFACE_SUIT_PART_IDS.has(partId as SurfaceSuitPartId)
+    ) {
+      const internalPartId = partId as SurfaceSuitPartId;
+      object.userData.partId = internalPartId;
+      const rawOffset = object.userData.explode_offset;
+      const explodeOffset =
+        Array.isArray(rawOffset) && rawOffset.length === 3
+          ? new THREE.Vector3(
+              Number(rawOffset[0]) || 0,
+              Number(rawOffset[2]) || 0,
+              -(Number(rawOffset[1]) || 0),
+            )
+          : new THREE.Vector3();
+      object.userData.partTransform = {
+        basePosition: object.position.clone(),
+        explodeOffset,
+      } satisfies PartTransformData;
+      const groups = rig.partGroups.get(internalPartId) ?? [];
+      groups.push(object);
+      rig.partGroups.set(internalPartId, groups);
+    }
+
+    if (!(object instanceof THREE.Mesh)) return;
+    object.castShadow = true;
+    object.receiveShadow = true;
+    if (Array.isArray(object.material)) {
+      object.material = object.material.map((material) => material.clone());
+    } else {
+      object.material = object.material.clone();
+    }
+  });
+
+  for (const conceptId of ["selene", "areo", "vector"] as const) {
+    const conceptRoot = authoredGroupWithProperty(
+      loadedScene,
+      "conceptVariant",
+      conceptId,
+    );
+    if (!conceptRoot) continue;
+
+    const body = authoredGroupWithRole(conceptRoot, "body");
+    const leftArm = authoredGroupWithRole(conceptRoot, "arm_l");
+    const rightArm = authoredGroupWithRole(conceptRoot, "arm_r");
+    const leftElbow = authoredGroupWithRole(conceptRoot, "forearm_l");
+    const rightElbow = authoredGroupWithRole(conceptRoot, "forearm_r");
+    const leftLeg = authoredGroupWithRole(conceptRoot, "leg_l");
+    const rightLeg = authoredGroupWithRole(conceptRoot, "leg_r");
+    const leftKnee = authoredGroupWithRole(conceptRoot, "shin_l");
+    const rightKnee = authoredGroupWithRole(conceptRoot, "shin_r");
+    if (
+      !body ||
+      !leftArm ||
+      !rightArm ||
+      !leftElbow ||
+      !rightElbow ||
+      !leftLeg ||
+      !rightLeg ||
+      !leftKnee ||
+      !rightKnee
+    ) continue;
+
+    const helmetAssembly = authoredGroupWithProperty(
+      conceptRoot,
+      "helmet_assembly",
+      true,
+    );
+    if (helmetAssembly) {
+      helmetAssembly.userData.basePosition = helmetAssembly.position.clone();
+      helmetAssembly.userData.baseRotation = helmetAssembly.rotation.clone();
+    }
+    body.userData.baseY = body.position.y;
+    rig.authoredRigs.set(conceptId, {
+      root: conceptRoot,
+      body,
+      leftArm,
+      rightArm,
+      leftElbow,
+      rightElbow,
+      leftLeg,
+      rightLeg,
+      leftKnee,
+      rightKnee,
+      helmetAssembly,
+    });
+  }
+
+  rig.body.visible = false;
+  rig.authoredContainer = container;
+  rig.root.add(container);
+}
+
 function selectedLabel(partId: string | null | undefined) {
   if (!partId) return "No suit part selected";
   if (partId in SURFACE_SUIT_PART_LABELS) {
@@ -2580,9 +2757,9 @@ const TEST_MODE_LABELS: Record<SurfaceSuitTestMode, string> = {
 };
 
 const CONCEPT_VIEW_LABELS: Record<SurfaceSuitConceptId, string> = {
-  selene: "SELENE lunar EVA concept · common pressure architecture with lunar-specific dust and lighting overlays",
-  areo: "AREO Mars EVA concept · asymmetric geology panels and abrasion overlays",
-  vector: "VECTOR Earth research garment · open head, no pressure enclosure, and no life-support backpack",
+  selene: "MAX lunar EVA concept · common pressure architecture with lunar-specific dust and lighting overlays",
+  areo: "MALTE Mars EVA concept · asymmetric geology panels and abrasion overlays",
+  vector: "BASTIAN Earth research garment · open head, no pressure enclosure, and no life-support backpack",
 };
 
 export function SurfaceSuitScene({
@@ -2633,6 +2810,9 @@ export function SurfaceSuitScene({
   const selectedPartRef = useRef<string | null>(selectedPartId);
   const onSelectPartRef = useRef(onSelectPart);
   const [webglError, setWebglError] = useState<string | null>(null);
+  const [assetStatus, setAssetStatus] = useState<"loading" | "ready" | "fallback">(
+    "loading",
+  );
   const [cameraLabel, setCameraLabel] = useState("Front view");
   const [exportMessage, setExportMessage] = useState("");
 
@@ -2663,6 +2843,69 @@ export function SurfaceSuitScene({
     }),
     [palette],
   );
+
+  // The Blender asset arrives asynchronously. Keep the latest configurator
+  // state in one stable ref so a fast user interaction during loading cannot
+  // be overwritten by the values from the first render.
+  const assetConfigurationRef = useRef({
+    bodyPreset,
+    pantsStyle,
+    torsoStyle,
+    bootStyle,
+    catEars,
+    staff,
+    assistModule,
+    dustModule,
+    haptics,
+    shoulderCamera,
+    tetherReel,
+    sampleKit,
+    exploded,
+    helmetAttached,
+    resolvedPalette,
+    cutaway,
+    previewOnlySelectedPart,
+  });
+
+  useEffect(() => {
+    assetConfigurationRef.current = {
+      bodyPreset,
+      pantsStyle,
+      torsoStyle,
+      bootStyle,
+      catEars,
+      staff,
+      assistModule,
+      dustModule,
+      haptics,
+      shoulderCamera,
+      tetherReel,
+      sampleKit,
+      exploded,
+      helmetAttached,
+      resolvedPalette,
+      cutaway,
+      previewOnlySelectedPart,
+    };
+  }, [
+    assistModule,
+    bodyPreset,
+    bootStyle,
+    catEars,
+    cutaway,
+    dustModule,
+    exploded,
+    haptics,
+    helmetAttached,
+    pantsStyle,
+    previewOnlySelectedPart,
+    resolvedPalette,
+    sampleKit,
+    shoulderCamera,
+    staff,
+    tetherReel,
+    torsoStyle,
+  ]);
 
   useEffect(() => {
     motionModeRef.current = resolvedMotionMode;
@@ -2695,6 +2938,7 @@ export function SurfaceSuitScene({
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
+    let disposed = false;
 
     let renderer: THREE.WebGLRenderer;
     try {
@@ -2724,7 +2968,7 @@ export function SurfaceSuitScene({
     renderer.domElement.setAttribute("role", "img");
     renderer.domElement.setAttribute(
       "aria-label",
-      "Interactive three-dimensional procedural missionwear. Drag or touch to rotate, use the wheel or labeled buttons to zoom, and select visible equipment for details.",
+      "Interactive three-dimensional Blender-authored missionwear. Drag or touch to rotate, use the wheel or labeled buttons to zoom, and select visible equipment for details.",
     );
     renderer.domElement.style.display = "block";
     renderer.domElement.style.width = "100%";
@@ -2800,6 +3044,68 @@ export function SurfaceSuitScene({
     scene.add(rig.root);
     applyConceptVariant(rig, conceptIdRef.current);
     applyTestMode(rig, testModeRef.current);
+
+    const authoredLoader = new GLTFLoader();
+    authoredLoader.load(
+      "/models/rieva-missionwear.glb",
+      (gltf) => {
+        if (disposed) {
+          disposeObject(gltf.scene);
+          return;
+        }
+        try {
+          installAuthoredSuits(rig, gltf.scene);
+          const current = assetConfigurationRef.current;
+          if (rig.authoredContainer) {
+            const scalar =
+              (rig.authoredContainer.userData.authoredScale as number | undefined) ?? 2.58;
+            rig.authoredContainer.scale.set(
+              scalar * BODY_SCALES[current.bodyPreset].x,
+              scalar * BODY_SCALES[current.bodyPreset].y,
+              scalar * BODY_SCALES[current.bodyPreset].z,
+            );
+          }
+          applyPantsStyle(rig.root, current.pantsStyle);
+          applyTailoringStyles(rig.root, current.torsoStyle, current.bootStyle);
+          setPartVisible(rig, "helmet-cat-ear-pods", current.catEars || selectedPartRef.current === "cat-ear-pods");
+          setPartVisible(rig, "walking-staff", current.staff || selectedPartRef.current === "walking-staff");
+          setPartVisible(
+            rig,
+            "assistive-lower-body-module",
+            current.assistModule || selectedPartRef.current === "assist-module",
+          );
+          setPartVisible(rig, "dust-gaiter-left", current.dustModule || selectedPartRef.current === "dust-module");
+          setPartVisible(rig, "dust-gaiter-right", current.dustModule || selectedPartRef.current === "dust-module");
+          setPartVisible(rig, "haptic-module", current.haptics || selectedPartRef.current === "haptic-module");
+          setPartVisible(
+            rig,
+            "shoulder-camera",
+            current.shoulderCamera || selectedPartRef.current === "shoulder-camera",
+          );
+          setPartVisible(rig, "tether-reel", current.tetherReel || selectedPartRef.current === "tether-reel");
+          setPartVisible(rig, "sample-kit", current.sampleKit || selectedPartRef.current === "sample-kit");
+          applyPartTransforms(rig, current.exploded, current.helmetAttached);
+          applyConceptVariant(rig, conceptIdRef.current);
+          applyAppearance(
+            rig.root,
+            current.resolvedPalette,
+            selectedPartRef.current,
+            current.cutaway,
+            current.previewOnlySelectedPart,
+          );
+          setAssetStatus("ready");
+        } catch (error) {
+          console.error("Unable to install Blender missionwear asset", error);
+          setAssetStatus("fallback");
+          rig.body.visible = true;
+        }
+      },
+      undefined,
+      (error) => {
+        console.error("Unable to load Blender missionwear asset", error);
+        if (!disposed) setAssetStatus("fallback");
+      },
+    );
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -2987,7 +3293,72 @@ export function SurfaceSuitScene({
         0.12,
       );
 
-      const selectedGroups: THREE.Group[] = [];
+      const authored = rig.authoredRigs.get(conceptIdRef.current);
+      if (authored) {
+        authored.rightLeg.rotation.x = THREE.MathUtils.lerp(
+          authored.rightLeg.rotation.x,
+          rightLegTarget,
+          0.14,
+        );
+        authored.leftLeg.rotation.x = THREE.MathUtils.lerp(
+          authored.leftLeg.rotation.x,
+          leftLegTarget,
+          0.14,
+        );
+        authored.leftArm.rotation.x = THREE.MathUtils.lerp(
+          authored.leftArm.rotation.x,
+          activeMotion === "jump" ? -1.02 : oppositeSwing * 0.7,
+          0.14,
+        );
+        authored.rightArm.rotation.x = THREE.MathUtils.lerp(
+          authored.rightArm.rotation.x,
+          activeMotion === "jump" ? -1.02 : swing * 0.7,
+          0.14,
+        );
+        authored.leftKnee.rotation.x = THREE.MathUtils.lerp(
+          authored.leftKnee.rotation.x,
+          kneeFlexLeft,
+          0.14,
+        );
+        authored.rightKnee.rotation.x = THREE.MathUtils.lerp(
+          authored.rightKnee.rotation.x,
+          kneeFlexRight,
+          0.14,
+        );
+        authored.leftElbow.rotation.x = THREE.MathUtils.lerp(
+          authored.leftElbow.rotation.x,
+          activeMotion === "jump" ? 0.3 : locomotion ? 0.16 : 0,
+          0.12,
+        );
+        authored.rightElbow.rotation.x = THREE.MathUtils.lerp(
+          authored.rightElbow.rotation.x,
+          activeMotion === "jump" ? 0.3 : locomotion ? 0.16 : 0,
+          0.12,
+        );
+        const authoredScale =
+          (rig.authoredContainer?.userData.authoredScale as number | undefined) ?? 2.58;
+        const authoredBaseY =
+          typeof authored.body.userData.baseY === "number"
+            ? authored.body.userData.baseY
+            : 0;
+        authored.body.position.y = THREE.MathUtils.lerp(
+          authored.body.position.y,
+          authoredBaseY +
+            (locomotion
+              ? Math.abs(Math.sin(elapsed * frequency)) *
+                (activeMotion === "run" ? 0.055 : 0.032) /
+                authoredScale
+              : jumpLift / authoredScale),
+          0.16,
+        );
+        authored.body.rotation.x = THREE.MathUtils.lerp(
+          authored.body.rotation.x,
+          activeMotion === "run" ? 0.095 : 0,
+          0.12,
+        );
+      }
+
+      const selectedGroups: THREE.Object3D[] = [];
       const selected = selectedPartRef.current;
       if (selected) {
         for (const [internalId, groups] of rig.partGroups) {
@@ -3060,6 +3431,7 @@ export function SurfaceSuitScene({
     else renderer.render(scene, camera);
 
     return () => {
+      disposed = true;
       renderer.setAnimationLoop(null);
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
@@ -3102,6 +3474,19 @@ export function SurfaceSuitScene({
     rig.body.scale.copy(BODY_SCALES[bodyPreset]);
     rig.body.userData.baseY = BODY_BASE_Y[bodyPreset];
     rig.body.position.y = BODY_BASE_Y[bodyPreset];
+    if (rig.authoredContainer) {
+      const scalar =
+        (rig.authoredContainer.userData.authoredScale as number | undefined) ?? 2.58;
+      rig.authoredContainer.scale.set(
+        scalar * BODY_SCALES[bodyPreset].x,
+        scalar * BODY_SCALES[bodyPreset].y,
+        scalar * BODY_SCALES[bodyPreset].z,
+      );
+      const basePosition = rig.authoredContainer.userData.basePosition as
+        | THREE.Vector3
+        | undefined;
+      if (basePosition) rig.authoredContainer.position.copy(basePosition);
+    }
   }, [bodyPreset]);
 
   useEffect(() => {
@@ -3225,7 +3610,7 @@ export function SurfaceSuitScene({
   return (
     <section
       className={`surface-suit-scene ${className}`.trim()}
-      aria-label="Interactive procedural surface suit"
+      aria-label="Interactive Blender-authored surface suit"
     >
       <div className="surface-suit-scene__toolbar">
         <div
@@ -3334,6 +3719,12 @@ export function SurfaceSuitScene({
             </p>
           </div>
         ) : null}
+        {!webglError && assetStatus === "loading" ? (
+          <div className="surface-suit-scene__asset-loading" role="status">
+            <span aria-hidden="true" />
+            Preparing Blender missionwear…
+          </div>
+        ) : null}
       </div>
 
       <div className="surface-suit-scene__status">
@@ -3344,6 +3735,15 @@ export function SurfaceSuitScene({
         <p className="surface-suit-scene__walking-note">
           {CONCEPT_VIEW_LABELS[conceptId]}
         </p>
+        {assetStatus === "ready" ? (
+          <p className="surface-suit-scene__walking-note">
+            Blender-authored anatomical mesh · interactive equipment hierarchy
+          </p>
+        ) : assetStatus === "fallback" ? (
+          <p className="surface-suit-scene__walking-note" role="status">
+            Blender asset unavailable; showing the lighter procedural fallback.
+          </p>
+        ) : null}
         {resolvedMotionMode !== "neutral" ? (
           <p className="surface-suit-scene__walking-note">
             Illustrative {resolvedMotionMode} preview — not a biomechanical simulation.

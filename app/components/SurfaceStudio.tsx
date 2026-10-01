@@ -45,7 +45,8 @@ const SurfaceSuitScene = lazy(() =>
   })),
 );
 
-const STORAGE_KEY = "rievastra-surface-studio-v1";
+const STORAGE_KEY = "rieva-surface-studio-v1";
+const LEGACY_STORAGE_KEY = "rievastra-surface-studio-v1";
 
 interface SceneBoundaryProps {
   children: ReactNode;
@@ -163,7 +164,7 @@ function downloadConfiguration(config: StudioConfiguration) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `rievastra-${config.conceptId}-configuration.json`;
+  anchor.download = `rieva-${config.conceptId}-configuration.json`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -284,7 +285,9 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
 
   const loadLocal = () => {
     try {
-      const saved = window.localStorage.getItem(STORAGE_KEY);
+      const saved =
+        window.localStorage.getItem(STORAGE_KEY) ??
+        window.localStorage.getItem(LEGACY_STORAGE_KEY);
       if (!saved) {
         setNotice("No saved Surface Studio configuration was found on this device.");
         return;
@@ -304,7 +307,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
     setCutaway(false);
     setMotionMode("neutral");
     setTestMode("none");
-    setNotice("Studio reset to SELENE defaults.");
+    setNotice("Studio reset to MAX defaults.");
   };
 
   return (
@@ -342,7 +345,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
             <h2 id="collection-title">Three systems. Three honest boundaries.</h2>
           </div>
           <p>
-            SELENE and AREO are independent surface-EVA concepts. VECTOR is an
+            MAX and MALTE are independent surface-EVA concepts. BASTIAN is an
             Earth research garment and never substitutes for pressure protection.
           </p>
         </div>
@@ -419,8 +422,8 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
               <legend>Fit and outer tailoring</legend>
               {config.conceptId === "vector" ? (
                 <p className="control-caveat">
-                  VECTOR has a fixed close-fitting research-garment silhouette.
-                  EVA pants, torso shells, and boot packages apply only to SELENE and AREO.
+                  BASTIAN has a fixed close-fitting research-garment silhouette.
+                  EVA pants, torso shells, and boot packages apply only to MAX and MALTE.
                 </p>
               ) : null}
               <label className="surface-field">
@@ -516,7 +519,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
               </div>
               {config.conceptId === "vector" ? (
                 <p className="control-caveat">
-                  VECTOR remains in research-display mode because it has no sealed
+                  BASTIAN remains in research-display mode because it has no sealed
                   pressure architecture or portable life-support system.
                 </p>
               ) : null}
@@ -619,7 +622,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
               <p>
                 {config.conceptId === "vector"
                   ? "Open-head Earth garment · no pressure enclosure or PLSS"
-                  : "Procedural surface-EVA concept · pressure architecture shown"}
+                  : "Blender-authored surface-EVA concept · pressure architecture shown"}
               </p>
             </div>
             <div className={styles.testRoom} aria-labelledby="surface-test-room-title">
@@ -639,7 +642,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
                   );
                   const unavailable = unavailableForConcept || missingModule;
                   const unavailableReason = unavailableForConcept
-                    ? "Not present on the open-head VECTOR garment."
+                    ? "Not present on the open-head BASTIAN garment."
                     : "Enable the matching accessory first.";
                   return (
                     <button
@@ -661,7 +664,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
                       <small>
                         {unavailable
                           ? unavailableForConcept
-                            ? "Not on VECTOR"
+                            ? "Not on BASTIAN"
                             : "Add module first"
                           : test.short}
                       </small>
@@ -677,7 +680,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
                 <Suspense
                   fallback={
                     <div className="surface-scene-activation" role="status">
-                      Preparing the procedural suit studio…
+                      Preparing the Blender-authored missionwear studio…
                     </div>
                   }
                 >
@@ -745,7 +748,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
                           {item.name}
                           {config.conceptId === "vector" &&
                           VECTOR_ABSENT_EQUIPMENT.has(item.id)
-                            ? " · not fitted to VECTOR"
+                            ? " · not fitted to BASTIAN"
                             : ""}
                         </option>
                       ))}
@@ -755,7 +758,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
             </label>
             <p className={styles.selectionCue} aria-live="polite">
               {selectedUnavailableForConcept
-                ? "Catalog inspection only: this EVA component is not fitted to VECTOR and is not highlighted on its open-head research garment."
+                ? "Catalog inspection only: this EVA component is not fitted to BASTIAN and is not highlighted on its open-head research garment."
                 : selectedPreviewOnly
                 ? "Preview only: this unfitted option appears translucent and pulsing on the suit; enable it under Mission accessories to add it."
                 : "This fitted component is outlined and softly pulsing on the 3D suit."}
@@ -773,7 +776,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
               </button>
             ) : selectedAccessoryUnavailable ? (
               <p className="control-caveat">
-                This option depends on EVA architecture that VECTOR intentionally omits.
+                This option depends on EVA architecture that BASTIAN intentionally omits.
               </p>
             ) : null}
 
@@ -1081,7 +1084,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
       </section>
 
       <footer className="surface-footer">
-        <strong>RIEVA//STRA · SURFACE STUDIO</strong>
+        <strong>RIEVA · SURFACE STUDIO</strong>
         <p>Independent educational exhibition · No store · No safety certification · Configuration stays on your device</p>
       </footer>
     </div>

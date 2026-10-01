@@ -40,9 +40,9 @@ export async function generateMetadata(): Promise<Metadata> {
       type: "website",
       images: [{
         url: "/og.png",
-        width: 1774,
-        height: 887,
-        alt: "Three Rievastra laboratories: orbital flight, rotating black holes, and surface missionwear.",
+        width: 1536,
+        height: 768,
+        alt: "Three RIEVA laboratories: orbital flight, rotating black holes, and surface missionwear.",
       }],
     },
     twitter: {

@@ -1,5 +1,5 @@
-import { RievastraApp } from "./components/RievastraApp";
+import { RievaApp } from "./components/RievaApp";
 
 export default function Home() {
-  return <RievastraApp />;
+  return <RievaApp />;
 }

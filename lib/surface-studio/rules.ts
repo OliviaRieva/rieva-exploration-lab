@@ -232,7 +232,7 @@ export function evaluateStudioConfiguration(
   }
   if (evaMission && concept.id === "vector") {
     missingRequirements.push("Complete pressure-retention, restraint, thermal, and portable life-support system");
-    conflicts.push("VECTOR is an Earth-based mobility research garment, not surface EVA equipment.");
+    conflicts.push("BASTIAN is an Earth-based mobility research garment, not surface EVA equipment.");
   }
   if (config.paletteId === "obsidian" && evaMission) {
     conflicts.push(

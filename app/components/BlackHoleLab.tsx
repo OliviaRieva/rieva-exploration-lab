@@ -107,6 +107,34 @@ function markerPosition(radius: number, scaleMaximum: number) {
   return `${Math.min(98, Math.max(2, (radius / scaleMaximum) * 100))}%`;
 }
 
+function ScienceEquation({
+  number,
+  domain,
+  title,
+  formula,
+  children,
+}: {
+  number: string;
+  domain: string;
+  title: string;
+  formula: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <article className="bh-equation-card">
+      <div className="bh-equation-meta">
+        <span>{domain}</span>
+        <span aria-label={`Equation ${number}`}>EQ · {number}</span>
+      </div>
+      <h3>{title}</h3>
+      <div className="bh-equation" role="math">
+        {formula}
+      </div>
+      <p>{children}</p>
+    </article>
+  );
+}
+
 export function BlackHoleLab({ active = false }: BlackHoleLabProps) {
   const [presetId, setPresetId] = useState<BlackHolePreset["id"]>(
     defaultBlackHoleConfiguration.presetId,
@@ -507,65 +535,109 @@ export function BlackHoleLab({ active = false }: BlackHoleLabProps) {
             spacetime is stationary, and the test object does not alter it.
           </p>
         </div>
-        <div className={styles.equationGrid}>
-          <article>
-            <span>Scale</span>
-            <h3>Gravitational radius</h3>
-            <code>r_g = GM / c²</code>
-            <p>
-              One r_g is {rgKm.toLocaleString("en-US", { maximumFractionDigits: 3 })} km for the current mass.
-              Mass changes the physical scale, while the boundary positions in r_g
-              depend on spin.
-            </p>
-          </article>
-          <article>
-            <span>Boundary</span>
-            <h3>Outer event horizon</h3>
-            <code>r₊ = r_g [1 + √(1 − a*²)]</code>
-            <p>
-              The horizon is a causal boundary, not a material sphere. The scene
-              renders its Boyer–Lindquist coordinate location.
-            </p>
-          </article>
-          <article>
-            <span>Rotation</span>
-            <h3>Outer static limit</h3>
-            <code>rₑ(θ) = r_g [1 + √(1 − a*² cos²θ)]</code>
-            <p>
-              The region between this surface and the horizon is the ergosphere.
-              Frame dragging prevents stationary worldlines there.
-            </p>
-          </article>
-          <article>
-            <span>Stability</span>
-            <h3>ISCO and photon orbit</h3>
-            <code>rISCO = f(a*, orbit direction)</code>
-            <p>
-              The exact standard Kerr expressions are evaluated in code. The ISCO
-              bounds stable equatorial circular geodesics; the photon orbit is
-              circular but unstable.
-            </p>
-          </article>
-          <article>
-            <span>Diagnostic</span>
-            <h3>Tidal scale</h3>
-            <code>Δa ≈ 2GM L / r³</code>
-            <p>
-              This Newtonian gradient only compares scale across length L. The 1 g,
-              10 g, and 1000 g bands are reference levels—not human or hardware
-              qualification limits.
-            </p>
-          </article>
-          <article>
-            <span>Visualization</span>
-            <h3>Accretion and jets</h3>
-            <code>appearance ≠ trajectory solution</code>
-            <p>
-              Disk flow, plasma emission, magnetic fields, radiative transfer,
-              lensing, and jet launching are not solved. Their geometry supplies
-              context only.
-            </p>
-          </article>
+        <div className={`${styles.equationGrid} bh-equation-grid`}>
+          <ScienceEquation
+            number="01"
+            domain="Length scale"
+            title="Gravitational radius"
+            formula={
+              <math display="block" aria-label="gravitational radius equals G times mass divided by the speed of light squared">
+                <mrow>
+                  <msub><mi>r</mi><mi>g</mi></msub><mo>=</mo>
+                  <mfrac><mrow><mi>G</mi><mi>M</mi></mrow><msup><mi>c</mi><mn>2</mn></msup></mfrac>
+                </mrow>
+              </math>
+            }
+          >
+            One <i>r</i><sub>g</sub> is {rgKm.toLocaleString("en-US", { maximumFractionDigits: 3 })} km for the current mass.
+            Mass changes the physical scale; spin sets the dimensionless boundary positions.
+          </ScienceEquation>
+          <ScienceEquation
+            number="02"
+            domain="Causal boundary"
+            title="Outer event horizon"
+            formula={
+              <math display="block" aria-label="outer horizon radius equals gravitational radius times one plus the square root of one minus dimensionless spin squared">
+                <mrow>
+                  <msub><mi>r</mi><mo>+</mo></msub><mo>=</mo>
+                  <msub><mi>r</mi><mi>g</mi></msub>
+                  <mrow><mo>(</mo><mn>1</mn><mo>+</mo><msqrt><mrow><mn>1</mn><mo>−</mo><msubsup><mi>a</mi><mo>*</mo><mn>2</mn></msubsup></mrow></msqrt><mo>)</mo></mrow>
+                </mrow>
+              </math>
+            }
+          >
+            The horizon is a causal boundary, not a material sphere. The scene
+            renders its Boyer–Lindquist coordinate location.
+          </ScienceEquation>
+          <ScienceEquation
+            number="03"
+            domain="Frame dragging"
+            title="Outer static limit"
+            formula={
+              <math display="block" aria-label="static limit radius as a function of polar angle equals gravitational radius times one plus the square root of one minus spin squared times cosine squared theta">
+                <mrow>
+                  <msub><mi>r</mi><mi>e</mi></msub><mo>(</mo><mi>θ</mi><mo>)</mo><mo>=</mo>
+                  <msub><mi>r</mi><mi>g</mi></msub>
+                  <mrow><mo>(</mo><mn>1</mn><mo>+</mo><msqrt><mrow><mn>1</mn><mo>−</mo><msubsup><mi>a</mi><mo>*</mo><mn>2</mn></msubsup><msup><mi>cos</mi><mn>2</mn></msup><mi>θ</mi></mrow></msqrt><mo>)</mo></mrow>
+                </mrow>
+              </math>
+            }
+          >
+            The ergosphere lies between this surface and the horizon. A stationary
+            worldline relative to infinity cannot remain there.
+          </ScienceEquation>
+          <ScienceEquation
+            number="04"
+            domain="Circular geodesics"
+            title="Equatorial ISCO radius"
+            formula={
+              <div className="bh-equation-system" aria-label="ISCO radius over gravitational radius equals three plus Z two, minus or plus the square root of the product of three minus Z one and three plus Z one plus two Z two">
+                <math display="block">
+                  <mrow>
+                    <mfrac><msub><mi>r</mi><mrow><mi>I</mi><mi>S</mi><mi>C</mi><mi>O</mi></mrow></msub><msub><mi>r</mi><mi>g</mi></msub></mfrac>
+                    <mo>=</mo><mn>3</mn><mo>+</mo><msub><mi>Z</mi><mn>2</mn></msub><mo>∓</mo>
+                    <msqrt><mrow><mo>(</mo><mn>3</mn><mo>−</mo><msub><mi>Z</mi><mn>1</mn></msub><mo>)</mo><mo>(</mo><mn>3</mn><mo>+</mo><msub><mi>Z</mi><mn>1</mn></msub><mo>+</mo><mn>2</mn><msub><mi>Z</mi><mn>2</mn></msub><mo>)</mo></mrow></msqrt>
+                  </mrow>
+                </math>
+                <span>upper sign: prograde · lower sign: retrograde</span>
+              </div>
+            }
+          >
+            The exact standard Kerr expression is evaluated with its Z terms in
+            code. The ISCO bounds stable equatorial circular geodesics; the photon
+            orbit is circular but unstable.
+          </ScienceEquation>
+          <ScienceEquation
+            number="05"
+            domain="Local diagnostic"
+            title="Approximate tidal scale"
+            formula={
+              <math display="block" aria-label="tidal acceleration difference is approximately two G M times object length divided by radius cubed">
+                <mrow>
+                  <mi>Δ</mi><mi>a</mi><mo>≈</mo>
+                  <mfrac><mrow><mn>2</mn><mi>G</mi><mi>M</mi><mi>L</mi></mrow><msup><mi>r</mi><mn>3</mn></msup></mfrac>
+                </mrow>
+              </math>
+            }
+          >
+            This Newtonian gradient compares scale across length <i>L</i>. The 1 g,
+            10 g, and 1000 g bands are references—not human or hardware
+            qualification limits.
+          </ScienceEquation>
+          <ScienceEquation
+            number="06"
+            domain="Render boundary"
+            title="Accretion and jets"
+            formula={
+              <div className="bh-equation-statement" aria-label="illustrative context is not a trajectory solution">
+                <span>illustrative context</span><b aria-hidden="true">≠</b><span>trajectory solution</span>
+              </div>
+            }
+          >
+            Disk flow, plasma emission, magnetic fields, radiative transfer,
+            lensing, and jet launching are not solved. Their geometry supplies
+            context only.
+          </ScienceEquation>
         </div>
         <div className={styles.limitations}>
           <strong>Not modeled</strong>

@@ -1,5 +1,35 @@
 "use client";
 
+import type { ReactNode } from "react";
+
+function EquationCard({
+  number,
+  domain,
+  title,
+  formula,
+  children,
+}: {
+  number: string;
+  domain: string;
+  title: string;
+  formula: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <article className="equation-row">
+      <div className="equation-card-head">
+        <span>{domain}</span>
+        <span aria-label={`Equation ${number}`}>EQ · {number}</span>
+      </div>
+      <h3>{title}</h3>
+      <div className="equation" role="math">
+        {formula}
+      </div>
+      <p>{children}</p>
+    </article>
+  );
+}
+
 type TechnologySettings = {
   powerKw: number;
   specificImpulseS: number;
@@ -177,32 +207,99 @@ export function PhysicsAndValidation() {
           <p className="eyebrow">About the model</p>
           <h2 id="physics-title">Understand every force in the loop.</h2>
           <p>
-            Rievastra is an educational mission study: transparent enough to inspect, limited enough to validate.
+            RIEVA is an educational mission study: transparent enough to inspect, limited enough to validate.
           </p>
         </div>
 
         <div className="physics-layout">
           <div className="equation-stack" aria-label="Governing equations">
-            <div className="equation-row">
-              <span className="equation">r̈ = −μr / |r|³ + (T/m) ûᵥ</span>
-              <p>Two-body gravity plus thrust acceleration in the instantaneous prograde direction.</p>
-            </div>
-            <div className="equation-row">
-              <span className="equation">vₑ = Iₛₚ g₀</span>
-              <p>
-                Exhaust velocity uses the exact standard reference acceleration
-                g₀ = 9.80665 m/s² that defines specific impulse—not the selected
-                world’s local surface gravity.
-              </p>
-            </div>
-            <div className="equation-row">
-              <span className="equation">T = 2ηP / vₑ</span>
-              <p>Idealized electric-propulsion thrust from power and constant efficiency.</p>
-            </div>
-            <div className="equation-row">
-              <span className="equation">ṁ = −T / vₑ</span>
-              <p>Propellant mass flow while the engine is commanded on.</p>
-            </div>
+            <EquationCard
+              number="01"
+              domain="Translational dynamics"
+              title="Equation of motion"
+              formula={
+                <math display="block" aria-label="r double dot equals negative mu r divided by the magnitude of r cubed, plus thrust divided by mass times the prograde unit vector">
+                  <mrow>
+                    <mover accent="true"><mi mathvariant="bold">r</mi><mo>¨</mo></mover>
+                    <mo>=</mo>
+                    <mo>−</mo>
+                    <mfrac>
+                      <mrow><mi>μ</mi><mi mathvariant="bold">r</mi></mrow>
+                      <msup><mrow><mo>‖</mo><mi mathvariant="bold">r</mi><mo>‖</mo></mrow><mn>3</mn></msup>
+                    </mfrac>
+                    <mo>+</mo>
+                    <mfrac><mi>T</mi><mi>m</mi></mfrac>
+                    <msub><mover accent="true"><mi mathvariant="bold">u</mi><mo>^</mo></mover><mi>v</mi></msub>
+                  </mrow>
+                </math>
+              }
+            >
+              Two-body gravity plus thrust acceleration in the instantaneous
+              prograde direction.
+            </EquationCard>
+            <EquationCard
+              number="02"
+              domain="Thruster kinematics"
+              title="Effective exhaust velocity"
+              formula={
+                <math display="block" aria-label="exhaust velocity equals specific impulse times standard gravity">
+                  <mrow>
+                    <msub><mi>v</mi><mi>e</mi></msub>
+                    <mo>=</mo>
+                    <msub><mi>I</mi><mrow><mi>s</mi><mi>p</mi></mrow></msub>
+                    <msub><mi>g</mi><mn>0</mn></msub>
+                  </mrow>
+                </math>
+              }
+            >
+              Exhaust velocity uses <span className="equation-inline"><i>g</i><sub>0</sub> = 9.80665 m/s<sup>2</sup></span>, the exact
+              standard reference acceleration that defines specific impulse—not
+              the selected world’s surface gravity.
+            </EquationCard>
+            <EquationCard
+              number="03"
+              domain="Power conversion"
+              title="Idealized electric thrust"
+              formula={
+                <math display="block" aria-label="thrust equals two times efficiency times electrical power divided by exhaust velocity">
+                  <mrow>
+                    <mi>T</mi><mo>=</mo>
+                    <mfrac>
+                      <mrow><mn>2</mn><mi>η</mi><mi>P</mi></mrow>
+                      <msub><mi>v</mi><mi>e</mi></msub>
+                    </mfrac>
+                  </mrow>
+                </math>
+              }
+            >
+              Available electrical power becomes jet kinetic power through one
+              constant efficiency assumption.
+            </EquationCard>
+            <EquationCard
+              number="04"
+              domain="Mass continuity"
+              title="Propellant mass flow"
+              formula={
+                <math display="block" aria-label="mass flow equals negative thrust divided by exhaust velocity">
+                  <mrow>
+                    <mover accent="true"><mi>m</mi><mo>˙</mo></mover>
+                    <mo>=</mo><mo>−</mo>
+                    <mfrac><mi>T</mi><msub><mi>v</mi><mi>e</mi></msub></mfrac>
+                  </mrow>
+                </math>
+              }
+            >
+              Propellant decreases only while the engine is commanded on and
+              propellant remains.
+            </EquationCard>
+            <dl className="equation-symbols" aria-label="Equation symbols">
+              <div><dt><i>r</i></dt><dd>Position vector</dd></div>
+              <div><dt><i>μ</i></dt><dd>Central-body GM</dd></div>
+              <div><dt><i>T</i></dt><dd>Thrust magnitude</dd></div>
+              <div><dt><i>m</i></dt><dd>Instantaneous mass</dd></div>
+              <div><dt><i>η</i></dt><dd>Propulsive efficiency</dd></div>
+              <div><dt><i>P</i></dt><dd>Electrical power</dd></div>
+            </dl>
           </div>
 
           <div className="model-notes">
@@ -244,7 +341,7 @@ export function PhysicsAndValidation() {
             <p className="eyebrow">Numerical validation</p>
             <h2 id="validation-title">Measured checks, not decorative confidence.</h2>
             <p>
-              Results below were produced on 30 September 2026 by the bundled, independent standard-library Python suite—not copied from the browser engine. The conservation benchmark remains the Earth baseline; automated browser-model tests separately exercise the generalized lunar case.
+              Results below were reproduced on 1 October 2026 by the bundled, independent standard-library Python suite—not copied from the browser engine. The conservation benchmark remains the Earth baseline; automated browser-model tests separately exercise the generalized lunar case.
             </p>
           </div>
           <span className="validation-pass">6 / 6 PASS</span>
