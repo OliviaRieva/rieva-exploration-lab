@@ -228,13 +228,13 @@
 }
 
 .brandA::before {
-  left: 47%;
-  transform: rotate(18deg);
+  left: 14%;
+  transform: rotate(14deg);
 }
 
 .brandA::after {
-  right: 47%;
-  transform: rotate(-18deg);
+  right: 14%;
+  transform: rotate(-14deg);
 }
 
 .brandADot {
@@ -242,8 +242,9 @@
   top: 56%;
   left: 50%;
   z-index: 2;
-  width: 0.15em;
-  height: 0.15em;
+  width: 0.24em;
+  height: 0.24em;
+  border: 0.055em solid rgba(255, 255, 255, 0.92);
   border-radius: 50%;
   background: linear-gradient(135deg, #7554dd, #63bfe9 52%, #e78cc9);
   box-shadow: 0 0 5px rgba(102, 105, 216, 0.38);
