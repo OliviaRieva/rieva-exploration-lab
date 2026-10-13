@@ -5,7 +5,7 @@ export const siteConfig = {
   descriptor: "Exploration Systems Laboratory",
   title: "RIEVA — Exploration Systems Laboratory",
   description:
-    "Three interactive laboratories for orbital-flight physics, rotating black holes, and research-informed 3D missionwear.",
-  tagline: "Flight dynamics, extreme gravity, and surface systems—made inspectable.",
+    "Four interactive laboratories for orbital flight, rotating black holes, 3D missionwear, and research-informed aerodynamics and astrobiology.",
+  tagline: "Flight dynamics, extreme gravity, surface systems, and the search for life—made inspectable.",
   defaultMissionName: "LEO → higher-orbit power-loss study",
 } as const;

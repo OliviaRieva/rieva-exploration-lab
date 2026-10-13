@@ -39,17 +39,17 @@ export async function generateMetadata(): Promise<Metadata> {
       description: siteConfig.description,
       type: "website",
       images: [{
-        url: "/og.png",
+        url: "/og-contact.png",
         width: 1536,
         height: 768,
-        alt: "Three RIEVA laboratories: orbital flight, rotating black holes, and surface missionwear.",
+        alt: "Four RIEVA laboratories: orbital flight, rotating black holes, surface missionwear, and Contact Flight aerodynamics.",
       }],
     },
     twitter: {
       card: "summary_large_image",
       title: siteConfig.title,
       description: siteConfig.description,
-      images: ["/og.png"],
+      images: ["/og-contact.png"],
     },
   };
 }

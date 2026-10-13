@@ -22,7 +22,7 @@ async function render(pathname = "/") {
   );
 }
 
-test("server-renders the complete three-laboratory RIEVA shell", async () => {
+test("server-renders the complete four-laboratory RIEVA shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -38,7 +38,7 @@ test("server-renders the complete three-laboratory RIEVA shell", async () => {
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
-test("the persistent three-laboratory document has unique element ids", async () => {
+test("the persistent four-laboratory document has unique element ids", async () => {
   const response = await render();
   const html = await response.text();
   const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
@@ -86,4 +86,23 @@ test("server-renders the Surface Studio without replacing Orbital Flight", async
   assert.match(html, /No store/);
   assert.doesNotMatch(html, /shopping cart|checkout|buy now/i);
   assert.match(html, /does not mean safe, certified, integrated, or flight ready/i);
+});
+
+test("server-renders the complete Contact Flight laboratory without replacing existing labs", async () => {
+  const response = await render();
+  const html = await response.text();
+
+  assert.match(html, /Four interactive laboratories/);
+  assert.match(html, /Contact Flight/);
+  assert.match(html, /Put AERIS-X inside the flow/);
+  assert.match(html, /Follow the air, not the flame/);
+  assert.match(html, /Resilience without imaginary invincibility/);
+  assert.match(html, /No extraterrestrial life or intelligence has been confirmed/);
+  assert.match(html, /This is not a flight envelope, CFD solution, or safety clearance/);
+  assert.match(html, /does not design weapons, harmful biological agents, blinding systems/i);
+  assert.match(html, /Research-informed, not certainty-decorated/);
+  assert.match(html, /not an antibiotic shield/i);
+  assert.match(html, /Orbital Flight/);
+  assert.match(html, /Black Hole Lab/);
+  assert.match(html, /Surface Studio/);
 });

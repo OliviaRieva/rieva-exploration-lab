@@ -1,8 +1,8 @@
 # RIEVA — Exploration Systems Laboratory
 
-RIEVA combines three persistent browser laboratories behind an animated home portal. **Orbital Flight** is an electric-propulsion mission study that propagates an uninterrupted reference and an otherwise identical mission with one engine interruption. **Black Hole Laboratory** explores calculated Kerr boundaries and transparent orbit diagnostics around rotating black holes. **Surface Studio — Missionwear** is an independent research-informed aerospace design exhibition with a Blender-authored 3D suit configurator, materials inspector, environmental test room, and transparent mission rules. Switching laboratories preserves each laboratory’s React state.
+RIEVA combines four persistent browser laboratories behind an animated home portal. **Orbital Flight** is an electric-propulsion mission study that propagates an uninterrupted reference and an otherwise identical mission with one engine interruption. **Black Hole Laboratory** explores calculated Kerr boundaries and transparent orbit diagnostics around rotating black holes. **Surface Studio — Missionwear** is an independent research-informed aerospace design exhibition with a Blender-authored 3D suit configurator, materials inspector, environmental test room, and transparent mission rules. **Contact Flight** combines an original Blender aircraft, an interactive aerodynamic point model, a turbine-engine explainer, transparent first-contact resilience modules, and a dated evidence map for astrobiology, SETI, aerodynamics, and propulsion. Switching laboratories preserves each laboratory’s React state.
 
-The **RIEVA** identity is centralized in [`lib/site-config.ts`](lib/site-config.ts), so public naming stays consistent across all three laboratories.
+The **RIEVA** identity is centralized in [`lib/site-config.ts`](lib/site-config.ts), so public naming stays consistent across all four laboratories.
 
 ## Run locally
 
@@ -29,7 +29,7 @@ npm run lint
 
 ### Home portal
 
-- Three animated, keyboard-accessible circular shortcuts for Orbital Flight, Black Hole Laboratory, and Surface Studio.
+- Four animated, keyboard-accessible circular shortcuts for Orbital Flight, Black Hole Laboratory, Surface Studio, and Contact Flight.
 - Reduced-motion alternatives and laboratory-specific transition animation.
 - A shared pearl/chrome theme with restrained blue, violet, pink, cyan, and gold light.
 
@@ -71,6 +71,21 @@ npm run lint
 - Configurable torso tailoring, boot packages, shoulder camera, tether reel, sample kit, and pulsing/ghosted part inspection with one-click accessory fitting.
 
 The suit model is an educational integration concept, not qualified hardware. Habitat clothing, launch/entry garments, and surface EVA equipment are explicitly distinguished. A cooling or compression garment alone is not vacuum protection.
+
+### Contact Flight
+
+- An original, unarmed **AERIS-X** research aircraft authored in Blender and exported as an optimized glTF asset: 63 named meshes, 3,760 vertices, and 6,772 triangles.
+- Mouse/touch rotation, wheel or pinch zoom, front/top/side/reset cameras, clickable named parts, external/cutaway/exploded views, and a visible fallback if WebGL or the asset fails.
+- A live wind-tunnel view with qualitative airflow streaks, pressure-wash overlays, and supersonic Mach-angle cues. These are explicitly not presented as CFD.
+- Editable altitude, true airspeed, angle of attack, wing state, flow view, and unknown-event exercise inputs.
+- Calculated 1976 standard-atmosphere state, Mach number, dynamic pressure, Reynolds number, low-order lift and drag, load factor, lift-to-drag ratio, and explicit out-of-model warnings.
+- A clickable turbine path covering inlet, compressor, combustor, turbine, and nozzle, with polished MathML equations and clear boundaries around what is not calculated.
+- Ten selectable resilience and observation modules. Every module publishes assumed mass, electrical power, and drag increments; all modules visibly toggle external or internal Blender geometry.
+- Non-harmful first-contact exercises for an unidentified signal, radiation event, aerosol plume, sensor saturation, and navigation disagreement. The site does not implement weapons, biological agents, blinding systems, or destructive sonic/RF concepts.
+- Local save/load, validated JSON export, 3D canvas screenshot export, reset, and transparent fixed-rule module suggestions.
+- Separate research views for life/intelligence searches and aerodynamic/propulsion work, with publication dates, verification date, evidence labels, direct primary or authoritative links, and a visible “what this does not prove” note on every card.
+
+The aircraft is a concept visualization and educational point model—not a CFD solution, stability-and-control model, engine deck, flight envelope, certification result, or claim of military superiority. NASA’s public X-59 educational STL was used only as a dimensional reference during Blender authoring and was removed before export; provenance and checksums are recorded in [`public/models/README.md`](public/models/README.md).
 
 ## Physics model
 
@@ -139,7 +154,7 @@ The TypeScript suite adds common-axis identity, zero-duration interruption equiv
 app/
   components/
     RievaApp.tsx           state-preserving laboratory navigation
-    HomePortal.tsx         animated three-laboratory homepage
+    HomePortal.tsx         animated four-laboratory homepage
     SimulatorApp.tsx       complete mission console and playback state
     OrbitScene.tsx         interactive projected-3D Canvas scene
     MissionCharts.tsx      accessible computed SVG charts
@@ -148,6 +163,8 @@ app/
     SurfaceSuitScene.tsx   Blender glTF loader, articulated rig and fallback
     BlackHoleLab.tsx       Kerr controls, diagnosis, equations, references
     BlackHoleScene.tsx     interactive Three.js extreme-gravity scene
+    ContactFlightLab.tsx   aerodynamics, systems, engine and research UI
+    AircraftScene.tsx      Blender aircraft, wind tunnel and part selection
   workers/
     mission.worker.ts      worker protocol and simulation execution
 lib/
@@ -157,17 +174,23 @@ lib/
   black-hole/catalog.ts    presets and primary references
   surface-studio/catalog.ts structured equipment, materials, palettes, sources
   surface-studio/rules.ts  persistence validation, mass/weight, mission rules
+  contact-flight/model.ts  atmosphere, flight-point and configuration rules
+  contact-flight/catalog.ts parts, modules, evidence and dated sources
   site-config.ts           single-source brand configuration
 scripts/
   build_rieva_suits.py    reproducible Blender missionwear build pipeline
+  build_aeris_x.py         reproducible original AERIS-X Blender pipeline
   validate.py              independent Python validation
 public/models/
   rieva-missionwear.glb    authored MAX, MALTE and BASTIAN browser asset
-  README.md                CC0 base-mesh provenance and integration notes
+  rieva-aeris-x.glb        named interactive Contact Flight aircraft asset
+  README.md                model provenance, licenses and integration notes
 tests/
   simulation.test.ts       numerical and event checks
   surface-studio.test.ts   persistence, requirements, mass and power checks
   black-hole.test.ts       Kerr boundary and diagnostic checks
+  contact-flight.test.ts   atmosphere, force, persistence and rule checks
+  aeris-asset.test.mjs     GLB geometry, metadata and loader checks
   rendered-html.test.mjs   production-render checks
 ```
 
@@ -195,6 +218,12 @@ The generated garment and equipment geometry is original to RIEVA. The anatomica
 - NASA, [HERMeS / AEPS performance overview](https://ntrs.nasa.gov/api/citations/20220007037/downloads/SP2022_438_CASSADY.pdf).
 - Rafalskyi et al., [In-orbit demonstration of an iodine electric propulsion system](https://www.nature.com/articles/s41586-021-04015-y), *Nature* (2021).
 - Blender Studio, [Human Base Meshes and their intended use](https://studio.blender.org/training/realistic-human-research/use-of-base-meshes/) and [official demo files](https://www.blender.org/download/demo-files/) (CC0 base-mesh source used for the missionwear anatomy).
+- NASA Glenn, [Beginner’s Guide to Aeronautics](https://www1.grc.nasa.gov/beginners-guide-to-aeronautics/learn-about-aerodynamics/) and [Thrust Force](https://www1.grc.nasa.gov/beginners-guide-to-aeronautics/thrust-force/) (force definitions and idealized jet-thrust relation).
+- NASA Astrobiology, [About Astrobiology](https://astrobiology.nasa.gov/about/) and NASA Science, [UAP FAQs](https://science.nasa.gov/uap/faqs/) (the explicit boundary that no extraterrestrial life or extraterrestrial UAP explanation has been confirmed).
+- Hurowitz et al., [Redox-driven mineral and organic associations in Jezero Crater](https://www.nature.com/articles/s41586-025-09413-0), *Nature* 645 (2025), and Stevenson et al., [K2-18 b Does Not Meet the Standards of Evidence for Life](https://escholarship.org/uc/item/9w95v4ff), *The Astronomical Journal* 170 (2025).
+- NASA Quesst, [X-59 flight-envelope update](https://www.nasa.gov/blogs/quesst/2026/10/02/nasas-x-59-completes-record-six-flights-in-one-week/) (2 October 2026) and NASA NTRS, [Coupled Adjoint Aerodynamic and Sonic Boom Propagation Optimization](https://ntrs.nasa.gov/citations/20250009072).
+
+The complete dated Contact Flight reference map is rendered in the application from [`lib/contact-flight/catalog.ts`](lib/contact-flight/catalog.ts), verified 12 October 2026.
 
 ## Deployment
 

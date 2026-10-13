@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { siteConfig } from "../../lib/site-config";
 import { BlackHoleLab } from "./BlackHoleLab";
+import { ContactFlightLab } from "./ContactFlightLab";
 import {
   HomePortal,
   RievaMark,
@@ -38,6 +39,12 @@ const WORKSPACES: Array<{
     title: "Surface Studio",
     description: "Missionwear exhibition",
   },
+  {
+    id: "contact",
+    index: "04",
+    title: "Contact Flight",
+    description: "Airflow + life search",
+  },
 ];
 
 const WORKSPACE_HASH: Record<Workspace, string> = {
@@ -45,6 +52,7 @@ const WORKSPACE_HASH: Record<Workspace, string> = {
   orbital: "#orbital-flight",
   "black-hole": "#black-hole-laboratory",
   surface: "#surface-studio",
+  contact: "#contact-flight-laboratory",
 };
 
 function workspaceFromHash(hash: string): Workspace {
@@ -54,6 +62,7 @@ function workspaceFromHash(hash: string): Workspace {
   ) return "orbital";
   if (hash.startsWith("#black-hole")) return "black-hole";
   if (hash.startsWith("#surface")) return "surface";
+  if (hash.startsWith("#contact")) return "contact";
   return "home";
 }
 
@@ -111,6 +120,13 @@ export function RievaApp() {
               ["Compatibility", "#surface-compatibility"],
               ["Research", "#surface-research"],
             ]
+          : workspace === "contact"
+            ? [
+                ["Flight lab", "#contact-flight-laboratory"],
+                ["Aerodynamics", "#contact-aerodynamics"],
+                ["Systems", "#contact-systems"],
+                ["Research", "#contact-research"],
+              ]
           : [];
 
   const activeTitle = WORKSPACES.find((item) => item.id === workspace)?.title;
@@ -120,6 +136,8 @@ export function RievaApp() {
       ? "#black-hole-laboratory"
       : workspace === "surface"
         ? "#surface-configurator"
+        : workspace === "contact"
+          ? "#contact-flight-laboratory"
         : "#laboratory-choices";
 
   return (
@@ -193,6 +211,13 @@ export function RievaApp() {
         hidden={workspace !== "surface"}
       >
         <SurfaceStudio active={workspace === "surface"} />
+      </div>
+      <div
+        className="workspace-panel workspace-panel--contact"
+        id="contact-flight-laboratory"
+        hidden={workspace !== "contact"}
+      >
+        <ContactFlightLab active={workspace === "contact"} />
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { siteConfig } from "../../lib/site-config";
 import styles from "./HomePortal.module.css";
 
-export type PortalDestination = "orbital" | "black-hole" | "surface";
+export type PortalDestination = "orbital" | "black-hole" | "surface" | "contact";
 
 export interface HomePortalProps {
   onNavigate: (destination: PortalDestination) => void;
@@ -44,6 +44,14 @@ const PORTALS: PortalDefinition[] = [
     kicker: "Missionwear + mobility",
     description: "Compose a surface system, inspect every layer, and test environmental tradeoffs.",
     className: styles.surfacePortal,
+  },
+  {
+    destination: "contact",
+    index: "04",
+    title: "Contact Flight",
+    kicker: "Airflow + astrobiology",
+    description: "Shape a research aircraft, reveal its airflow, and map evidence in the search for life.",
+    className: styles.contactPortal,
   },
 ];
 
@@ -146,10 +154,42 @@ function SuitArtwork() {
   );
 }
 
+function ContactArtwork() {
+  return (
+    <span className={`${styles.visual} ${styles.contactVisual}`} aria-hidden="true">
+      <svg className={styles.contactFlow} viewBox="0 0 260 150" focusable="false">
+        <path d="M8 34 C72 8 178 13 250 40" />
+        <path d="M3 58 C78 38 180 42 256 61" />
+        <path d="M3 88 C70 108 180 107 256 84" />
+        <path d="M8 113 C80 142 183 137 250 109" />
+      </svg>
+      <svg className={styles.contactAircraft} viewBox="0 0 260 150" focusable="false">
+        <path
+          className={styles.contactAircraftShadow}
+          d="M15 83 94 68 120 22 142 24 151 60 223 45 250 56 191 78 236 103 222 112 151 91 137 134 116 132 94 91 20 94Z"
+        />
+        <path
+          className={styles.contactAircraftBody}
+          d="M16 75 96 64 121 27 140 29 149 58 220 48 246 57 187 75 230 98 218 105 149 87 136 125 118 124 96 87 21 87Z"
+        />
+        <path className={styles.contactAircraftCanopy} d="m119 62 9-25 8 2 7 23-9 8Z" />
+        <path className={styles.contactAircraftCore} d="m96 64 53-6 38 17-38 12-53-23Z" />
+        <path className={styles.contactAircraftAccent} d="m30 78 68-10 50 8-52 6Z" />
+        <path className={styles.contactAircraftNozzle} d="m218 54 28 3-18 7Z" />
+      </svg>
+      <span className={styles.contactScan} />
+      <span className={styles.contactSignal}>
+        <span />
+      </span>
+    </span>
+  );
+}
+
 function PortalArtwork({ destination }: { destination: PortalDestination }) {
   if (destination === "orbital") return <OrbitArtwork />;
   if (destination === "black-hole") return <BlackHoleArtwork />;
-  return <SuitArtwork />;
+  if (destination === "surface") return <SuitArtwork />;
+  return <ContactArtwork />;
 }
 
 export function HomePortal({ onNavigate }: HomePortalProps) {
@@ -223,9 +263,9 @@ export function HomePortal({ onNavigate }: HomePortalProps) {
           <span>Test the edge.</span>
         </h1>
         <p className={styles.introduction}>
-          Three interactive laboratories connect spacecraft dynamics, extreme-gravity physics,
-          and human surface systems. Change the assumptions, watch the model respond, and keep
-          evidence separate from imagination.
+          Four interactive laboratories connect spacecraft dynamics, extreme-gravity physics,
+          human surface systems, and atmospheric flight. Change the assumptions, watch each
+          model respond, and keep evidence separate from imagination.
         </p>
         <p className={styles.invitation}>Choose a laboratory to begin.</p>
       </section>
@@ -302,6 +342,12 @@ export function HomePortal({ onNavigate }: HomePortalProps) {
             <span className={styles.transitionSurface}>
               <SuitArtwork />
               <span className={styles.transitionSurfaceBloom} />
+            </span>
+          ) : null}
+          {departing === "contact" ? (
+            <span className={styles.transitionContact}>
+              <ContactArtwork />
+              <span className={styles.transitionContactWake} />
             </span>
           ) : null}
           <span className={styles.transitionCaption}>

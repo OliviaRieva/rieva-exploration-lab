@@ -25,7 +25,7 @@ declare module "react" {
       msub: MathMLAttributes;
       msubsup: MathMLAttributes;
       msup: MathMLAttributes;
+      mtext: MathMLAttributes;
     }
   }
 }
-
