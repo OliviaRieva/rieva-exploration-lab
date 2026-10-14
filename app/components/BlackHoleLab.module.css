@@ -127,55 +127,89 @@
   width: min(100%, 510px);
   aspect-ratio: 1;
   justify-self: center;
+  isolation: isolate;
   border-radius: 50%;
   background:
-    radial-gradient(circle, transparent 0 27%, rgba(255, 255, 255, 0.08) 28% 29%, transparent 30%),
-    conic-gradient(from 80deg, #291052, #7c44e9, #e26acb, #7edff2, #c7a7ff, #291052);
+    radial-gradient(circle at 50% 50%, transparent 0 21%, rgba(162, 124, 224, 0.13) 21.4% 21.8%, transparent 22.3% 38%, rgba(89, 205, 236, 0.1) 38.4% 38.8%, transparent 39.2%),
+    repeating-radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.045) 0 1px, transparent 1px 33px),
+    radial-gradient(circle at 48% 46%, #261442 0, #10091d 44%, #07040d 78%, #030207 100%);
   box-shadow:
-    0 46px 110px rgba(70, 33, 125, 0.25),
-    inset 0 0 65px rgba(255, 255, 255, 0.25),
-    0 0 0 1px rgba(255, 255, 255, 0.85);
-  animation: glyphFloat 7s ease-in-out infinite;
+    0 42px 100px rgba(45, 24, 80, 0.23),
+    inset 0 0 72px rgba(115, 70, 187, 0.15),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+    0 0 0 1px rgba(62, 41, 100, 0.2);
+  transform: perspective(900px) rotateX(2deg);
+  transition: transform 650ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 650ms ease;
 }
 
 .heroGlyph::before {
   content: "";
   position: absolute;
-  inset: 4%;
+  inset: 7%;
+  z-index: 1;
   border-radius: inherit;
-  background:
-    radial-gradient(circle at 37% 30%, rgba(255, 255, 255, 0.52), transparent 19%),
-    radial-gradient(circle at 64% 72%, rgba(92, 210, 239, 0.45), transparent 27%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.03));
-  filter: blur(0.2px);
+  background: repeating-conic-gradient(
+    from -0.5deg,
+    rgba(194, 175, 232, 0.46) 0 0.3deg,
+    transparent 0.3deg 7.5deg
+  );
+  mask: radial-gradient(circle, transparent 0 93.5%, #000 94% 100%);
+  opacity: 0.55;
+}
+
+.heroGlyph::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  width: 83%;
+  height: 19%;
+  border: 7px solid transparent;
+  border-radius: 50%;
+  content: "";
+  background: linear-gradient(90deg, #6650c4, #cb64b7 26%, #f0c68c 49%, #72c9e6 76%, #6650c4) border-box;
+  filter: drop-shadow(0 0 8px rgba(215, 111, 187, 0.34));
+  mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  transform: translate(-50%, -50%) rotate(-8deg);
+}
+
+.hero:hover .heroGlyph {
+  box-shadow:
+    0 48px 110px rgba(45, 24, 80, 0.28),
+    inset 0 0 84px rgba(115, 70, 187, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.34),
+    0 0 0 1px rgba(62, 41, 100, 0.24);
+  transform: perspective(900px) rotateX(0deg) translateY(-4px);
 }
 
 .heroBlackHole {
   position: absolute;
-  inset: 30%;
-  z-index: 3;
+  inset: 31%;
+  z-index: 4;
   border-radius: 50%;
-  background: radial-gradient(circle at 43% 38%, #0b0418 0 40%, #020005 67%, #000 100%);
+  background: radial-gradient(circle at 43% 38%, #0b0712 0 35%, #020204 69%, #000 100%);
   box-shadow:
-    0 0 0 10px rgba(255, 238, 255, 0.1),
-    0 0 24px 16px rgba(250, 206, 255, 0.7),
-    0 0 62px 27px rgba(99, 42, 219, 0.62);
+    0 0 0 1px rgba(248, 222, 201, 0.72),
+    0 0 12px 5px rgba(235, 174, 209, 0.42),
+    0 0 42px 19px rgba(91, 54, 170, 0.36);
 }
 
 .heroOrbitOne,
 .heroOrbitTwo {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   inset: 20% 5%;
-  border: 2px solid rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(231, 225, 245, 0.47);
   border-radius: 50%;
   transform: rotate(-18deg);
-  box-shadow: 0 0 18px rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 12px rgba(186, 149, 230, 0.18);
 }
 
 .heroOrbitTwo {
   inset: 7% 21%;
-  border-color: rgba(162, 226, 255, 0.55);
+  border-color: rgba(126, 211, 238, 0.34);
+  border-style: dashed;
   transform: rotate(62deg);
 }
 
@@ -184,16 +218,11 @@
   z-index: 4;
   bottom: 12%;
   left: 50%;
-  color: rgba(255, 255, 255, 0.86);
+  color: rgba(228, 222, 241, 0.75);
   font-family: var(--font-geist-mono), monospace;
   font-size: 0.68rem;
-  letter-spacing: 0.46em;
+  letter-spacing: 0.35em;
   transform: translateX(-50%);
-}
-
-@keyframes glyphFloat {
-  0%, 100% { transform: translateY(0) rotate(-1deg); }
-  50% { transform: translateY(-14px) rotate(1.5deg); }
 }
 
 .presetStrip {
@@ -683,33 +712,43 @@
   width: 15px;
   height: 15px;
   flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--violet);
-  box-shadow: 0 0 0 4px rgba(108, 63, 224, 0.1);
+  border: 1px solid rgba(61, 39, 111, 0.38);
+  border-radius: 3px;
+  background: rgba(108, 63, 224, 0.14);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.72);
+  transform: rotate(45deg);
 }
 
 .probeIconSpacecraft {
   width: 18px;
   height: 8px;
-  border-radius: 50% 90% 90% 50%;
+  border-radius: 2px 70% 70% 2px;
+  background: linear-gradient(90deg, #f7f4fb, #8170c0);
+  transform: none;
 }
 
 .probeIconAstronaut {
-  border: 4px solid var(--violet);
+  border: 3px double var(--violet);
+  border-radius: 50% 50% 38% 38%;
   background: transparent;
+  transform: none;
 }
 
 .probeIconStar {
-  background: var(--gold);
-  box-shadow: 0 0 0 4px rgba(215, 169, 88, 0.12);
+  border-color: rgba(160, 112, 31, 0.52);
+  background: rgba(215, 169, 88, 0.34);
+  box-shadow: 0 0 8px rgba(215, 169, 88, 0.24);
 }
 
 .probeIconPhoton {
   width: 8px;
   height: 8px;
   margin-inline: 3px 4px;
+  border: 0;
+  border-radius: 50%;
   background: var(--cyan);
   box-shadow: 0 0 8px 3px rgba(84, 200, 235, 0.45);
+  transform: none;
 }
 
 .presetNote {
@@ -904,19 +943,39 @@
 
 .boundaryTrack {
   position: relative;
-  height: 1px;
-  background: rgba(40, 25, 67, 0.16);
+  height: 13px;
+  background:
+    repeating-linear-gradient(90deg, rgba(54, 40, 91, 0.13) 0 1px, transparent 1px 10%),
+    linear-gradient(transparent 6px, rgba(40, 25, 67, 0.2) 6px 7px, transparent 7px);
+}
+
+.boundaryTrack::before,
+.boundaryTrack::after {
+  position: absolute;
+  top: 4px;
+  width: 1px;
+  height: 5px;
+  content: "";
+  background: rgba(50, 35, 83, 0.34);
+}
+
+.boundaryTrack::before {
+  left: 0;
+}
+
+.boundaryTrack::after {
+  right: 0;
 }
 
 .boundaryTrack i {
   position: absolute;
   top: 50%;
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border: 2px solid #fff;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 2px currentColor, 0 0 12px currentColor;
+  border-radius: 2px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  box-shadow: 0 0 0 1px currentColor, 0 0 8px color-mix(in srgb, currentColor 52%, transparent);
 }
 
 .boundaryHorizon { color: #352a45; background: #352a45; }
@@ -1295,6 +1354,15 @@
   .heroGlyph,
   .sceneLoading span {
     animation: none;
+  }
+
+  .heroGlyph {
+    transition: none;
+    transform: none;
+  }
+
+  .hero:hover .heroGlyph {
+    transform: none;
   }
 
   .presetButtons button {

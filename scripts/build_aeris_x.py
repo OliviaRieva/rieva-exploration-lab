@@ -61,6 +61,10 @@ def material(
     transmission: float = 0.0,
     emission: str | None = None,
     emission_strength: float = 0.0,
+    coat_weight: float = 0.0,
+    coat_roughness: float = 0.12,
+    ior: float = 1.45,
+    anisotropy: float = 0.0,
 ) -> bpy.types.Material:
     mat = bpy.data.materials.new(name)
     mat.diffuse_color = rgba(color, alpha)
@@ -71,6 +75,16 @@ def material(
         shader.inputs["Metallic"].default_value = metallic
         shader.inputs["Roughness"].default_value = roughness
         shader.inputs["Alpha"].default_value = alpha
+        if "Coat Weight" in shader.inputs:
+            shader.inputs["Coat Weight"].default_value = coat_weight
+        if "Coat Roughness" in shader.inputs:
+            shader.inputs["Coat Roughness"].default_value = coat_roughness
+        if "IOR" in shader.inputs:
+            shader.inputs["IOR"].default_value = ior
+        if "Anisotropic IOR Level" in shader.inputs:
+            shader.inputs["Anisotropic IOR Level"].default_value = anisotropy
+        elif "Anisotropic" in shader.inputs:
+            shader.inputs["Anisotropic"].default_value = anisotropy
         if "Transmission Weight" in shader.inputs:
             shader.inputs["Transmission Weight"].default_value = transmission
         if emission and "Emission Color" in shader.inputs:
@@ -381,6 +395,117 @@ def ribbon(
     return extruded_polygon(name, footprint, z, 0.012, mat, parent, **values)
 
 
+def swept_rectangular_path(
+    name: str,
+    points: Sequence[Sequence[float]],
+    width: float,
+    depth: float,
+    mat: bpy.types.Material,
+    parent: bpy.types.Object,
+    *,
+    bevel: float = 0.0,
+    **values: object,
+) -> bpy.types.Object:
+    """Sweep a compact rectangular section along an authored 3D path.
+
+    This is used for canopy bows, panel seams and structural edge caps.  It
+    avoids primitive rods and gives the paths planar highlights at browser
+    scale.
+    """
+
+    centers = [Vector(point) for point in points]
+    if len(centers) < 2:
+        raise ValueError("A swept path needs at least two points")
+    vertices: list[tuple[float, float, float]] = []
+    for index, center in enumerate(centers):
+        if index == 0:
+            tangent = centers[1] - center
+        elif index == len(centers) - 1:
+            tangent = center - centers[index - 1]
+        else:
+            tangent = centers[index + 1] - centers[index - 1]
+        tangent.normalize()
+        reference = Vector((0.0, 0.0, 1.0))
+        if abs(tangent.dot(reference)) > 0.92:
+            reference = Vector((1.0, 0.0, 0.0))
+        lateral = tangent.cross(reference).normalized()
+        normal = lateral.cross(tangent).normalized()
+        for lateral_sign, normal_sign in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+            point = center + lateral * lateral_sign * width / 2 + normal * normal_sign * depth / 2
+            vertices.append(tuple(point))
+    faces: list[tuple[int, ...]] = []
+    for section in range(len(centers) - 1):
+        start = section * 4
+        nxt = (section + 1) * 4
+        for corner in range(4):
+            following = (corner + 1) % 4
+            faces.append((start + corner, start + following, nxt + following, nxt + corner))
+    faces.extend([(0, 3, 2, 1), tuple(range((len(centers) - 1) * 4, len(centers) * 4))])
+    return mesh_object(name, vertices, faces, mat, parent, bevel=bevel, **values)
+
+
+def loft_patch(
+    name: str,
+    center_x: float,
+    stations: Sequence[tuple[float, float, float, float]],
+    angle_start: float,
+    angle_end: float,
+    mat: bpy.types.Material,
+    parent: bpy.types.Object,
+    *,
+    arc_steps: int = 20,
+    **values: object,
+) -> bpy.types.Object:
+    """Create an open aerodynamic shell patch over part of a loft."""
+
+    vertices: list[tuple[float, float, float]] = []
+    for y, half_width, half_height, center_z in stations:
+        for step in range(arc_steps + 1):
+            theta = angle_start + (angle_end - angle_start) * step / arc_steps
+            vertices.append(
+                (
+                    center_x + half_width * math.cos(theta),
+                    y,
+                    center_z + half_height * math.sin(theta),
+                )
+            )
+    ring = arc_steps + 1
+    faces: list[tuple[int, ...]] = []
+    for station in range(len(stations) - 1):
+        a = station * ring
+        b = (station + 1) * ring
+        for step in range(arc_steps):
+            faces.append((a + step, a + step + 1, b + step + 1, b + step))
+    return mesh_object(name, vertices, faces, mat, parent, **values)
+
+
+def annular_face(
+    name: str,
+    center_x: float,
+    y: float,
+    outer_radius: float,
+    inner_radius: float,
+    mat: bpy.types.Material,
+    parent: bpy.types.Object,
+    *,
+    segments: int = 40,
+    z_scale: float = 0.92,
+    **values: object,
+) -> bpy.types.Object:
+    """A modeled annulus for engine lips, stator rings and exhaust throats."""
+
+    vertices: list[tuple[float, float, float]] = []
+    for radius in (outer_radius, inner_radius):
+        for index in range(segments):
+            theta = 2 * math.pi * index / segments
+            vertices.append((center_x + radius * math.cos(theta), y, radius * z_scale * math.sin(theta)))
+    faces: list[tuple[int, ...]] = []
+    for index in range(segments):
+        nxt = (index + 1) % segments
+        faces.append((index, nxt, segments + nxt, segments + index))
+    return mesh_object(name, vertices, faces, mat, parent, **values)
+
+
 def fin_surface(
     name: str,
     side: int,
@@ -390,12 +515,18 @@ def fin_surface(
 ) -> bpy.types.Object:
     # Polygon is authored in longitudinal/vertical space; the upper fin is
     # canted outward to avoid the toy-like slab look of a primitive.
-    profile = [(-1.75, 0.29), (-2.85, 1.86), (-3.58, 1.68), (-4.58, 0.27)]
-    half_thickness = 0.065
+    profile = [
+        (-1.58, 0.27, 0.105),
+        (-2.62, 1.66, 0.054),
+        (-2.98, 1.96, 0.038),
+        (-3.38, 1.94, 0.035),
+        (-3.82, 1.65, 0.046),
+        (-4.64, 0.27, 0.090),
+    ]
     base_x = side * 0.78
     vertices: list[tuple[float, float, float]] = []
     for face_sign in (1.0, -1.0):
-        for y, z in profile:
+        for y, z, half_thickness in profile:
             cant = side * z * 0.27
             vertices.append((base_x + cant + face_sign * half_thickness, y, z))
     count = len(profile)
@@ -403,7 +534,7 @@ def fin_surface(
     for index in range(count):
         following = (index + 1) % count
         faces.append((index, following, count + following, count + index))
-    return mesh_object(name, vertices, faces, mat, parent, bevel=0.018, **values)
+    return mesh_object(name, vertices, faces, mat, parent, bevel=0.024, **values)
 
 
 def section_loop(
@@ -444,7 +575,7 @@ def intake_assembly(
         system_id="propulsion-air-path",
         interaction="selectable",
     )
-    segments = 24
+    segments = 32
     center_x = side * 1.04
     outer_front = section_loop(center_x, 1.67, 0.04, 0.41, 0.46, segments, side=side)
     outer_back = section_loop(center_x, 1.52, 0.04, 0.38, 0.42, segments, side=side)
@@ -508,6 +639,59 @@ def intake_assembly(
         material_role="intake-duct",
         aerodynamic_surface="internal-duct",
     )
+    # A sculpted compression ramp and center-side splitter make the inlet read
+    # as an integrated flow path rather than a dark hole in the fuselage.
+    splitter_footprint = [
+        (side * 0.73, 1.83),
+        (side * 1.05, 1.58),
+        (side * 0.91, 0.46),
+        (side * 0.69, 0.72),
+    ]
+    extruded_polygon(
+        f"INTAKE_SPLITTER_{label}",
+        splitter_footprint,
+        0.055,
+        0.055,
+        mats["titanium"],
+        group,
+        bevel=0.018,
+        material_role="inlet-splitter",
+        aerodynamic_surface="compression-ramp",
+    )
+    ramp_footprint = [
+        (side * 0.92, 1.41),
+        (side * 1.29, 1.34),
+        (side * 1.12, 0.31),
+        (side * 0.82, 0.46),
+    ]
+    extruded_polygon(
+        f"INTAKE_COMPRESSION_RAMP_{label}",
+        ramp_footprint,
+        -0.18,
+        0.035,
+        mats["duct_detail"],
+        group,
+        material_role="inlet-ramp",
+        aerodynamic_surface="internal-compression-ramp",
+    )
+    loft_patch(
+        f"INTAKE_SHOULDER_COWL_{label}",
+        center_x,
+        [
+            (1.92, 0.47, 0.43, 0.02),
+            (1.60, 0.51, 0.47, 0.02),
+            (0.45, 0.49, 0.45, 0.015),
+            (-0.72, 0.44, 0.40, 0.01),
+            (-1.26, 0.38, 0.34, 0.01),
+        ],
+        math.pi * 0.08,
+        math.pi * 0.92,
+        mats["shell_light"],
+        group,
+        arc_steps=22,
+        material_role="inlet-shoulder-cowl",
+        aerodynamic_surface="blended-inlet-fairing",
+    )
 
 
 def fan_rotor(
@@ -517,16 +701,18 @@ def fan_rotor(
     radius: float,
     mat: bpy.types.Material,
     parent: bpy.types.Object,
+    *,
+    phase: float = 0.0,
+    blade_count: int = 22,
     **values: object,
 ) -> bpy.types.Object:
     """Generate a bladed rotor as authored wedges, not a cylinder primitive."""
 
-    blade_count = 18
     depth = 0.045
     vertices: list[tuple[float, float, float]] = []
     faces: list[tuple[int, ...]] = []
     for blade in range(blade_count):
-        angle = 2 * math.pi * blade / blade_count
+        angle = phase + 2 * math.pi * blade / blade_count
         sweep = 0.20
         a0 = angle - 0.055
         a1 = angle + 0.075
@@ -576,15 +762,25 @@ def nozzle_surface(
     center_x: float,
     mat: bpy.types.Material,
     parent: bpy.types.Object,
+    *,
+    stations: Sequence[tuple[float, float, float]] | None = None,
+    segments: int = 64,
+    lobe_amplitude: float = 0.045,
+    reverse_faces: bool = False,
     **values: object,
 ) -> bpy.types.Object:
-    segments = 48
-    stations = [(-5.12, 0.42, 0.37), (-5.58, 0.36, 0.325), (-5.87, 0.30, 0.28)]
+    stations = stations or [
+        (-5.08, 0.43, 0.38),
+        (-5.32, 0.415, 0.365),
+        (-5.58, 0.36, 0.325),
+        (-5.78, 0.32, 0.295),
+        (-5.91, 0.30, 0.28),
+    ]
     vertices: list[tuple[float, float, float]] = []
     for y, radius_x, radius_z in stations:
         for index in range(segments):
             theta = 2 * math.pi * index / segments
-            lobe = 1.0 + 0.055 * math.cos(12 * theta)
+            lobe = 1.0 + lobe_amplitude * math.cos(12 * theta)
             vertices.append(
                 (
                     center_x + radius_x * lobe * math.cos(theta),
@@ -598,7 +794,8 @@ def nozzle_surface(
         b = (station + 1) * segments
         for index in range(segments):
             nxt = (index + 1) % segments
-            faces.append((a + index, a + nxt, b + nxt, b + index))
+            face = (a + index, a + nxt, b + nxt, b + index)
+            faces.append(tuple(reversed(face)) if reverse_faces else face)
     return mesh_object(name, vertices, faces, mat, parent, **values)
 
 
@@ -961,20 +1158,90 @@ def build_modules(
 
 def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
     mats = {
-        "silver": material("AERIS pearl ceramic composite", "#d9e4ef", metallic=0.54, roughness=0.27),
-        "shell_light": material("AERIS cool-white upper skin", "#edf4fa", metallic=0.22, roughness=0.30),
-        "shell_dark": material("AERIS graphite lower skin", "#101a2e", metallic=0.52, roughness=0.31),
-        "edge": material("AERIS nickel leading edge", "#8da5b8", metallic=0.88, roughness=0.20),
+        "silver": material(
+            "AERIS pearl ceramic composite",
+            "#d9e4ef",
+            metallic=0.48,
+            roughness=0.23,
+            coat_weight=0.34,
+            coat_roughness=0.10,
+        ),
+        "shell_light": material(
+            "AERIS cool-white upper skin",
+            "#edf4fa",
+            metallic=0.18,
+            roughness=0.25,
+            coat_weight=0.42,
+            coat_roughness=0.11,
+        ),
+        "shell_mid": material(
+            "AERIS pale titanium access skin",
+            "#b8c8d9",
+            metallic=0.66,
+            roughness=0.28,
+            anisotropy=0.18,
+        ),
+        "shell_dark": material(
+            "AERIS graphite lower skin",
+            "#101a2e",
+            metallic=0.48,
+            roughness=0.33,
+            coat_weight=0.18,
+        ),
+        "edge": material(
+            "AERIS nickel leading edge",
+            "#8da5b8",
+            metallic=0.92,
+            roughness=0.18,
+            anisotropy=0.34,
+        ),
+        "seal": material("AERIS flexible seal and panel gap", "#030711", metallic=0.02, roughness=0.82),
         "duct": material("AERIS intake low-reflectance coating", "#050912", metallic=0.04, roughness=0.69),
-        "engine": material("AERIS turbine ceramic-metal", "#5f6d78", metallic=0.87, roughness=0.26),
-        "heat": material("AERIS high-temperature nozzle", "#453e4d", metallic=0.78, roughness=0.31),
-        "glass": material("AERIS canopy laminate", "#493d86", metallic=0.15, roughness=0.12, alpha=0.46, transmission=0.55),
-        "sensor": material("AERIS multispectral window", "#1a6f91", metallic=0.34, roughness=0.13, emission="#44bfff", emission_strength=0.45),
+        "duct_detail": material("AERIS duct wear surface", "#1b2938", metallic=0.44, roughness=0.48),
+        "engine": material(
+            "AERIS turbine ceramic-metal",
+            "#5f6d78",
+            metallic=0.90,
+            roughness=0.25,
+            anisotropy=0.38,
+        ),
+        "titanium": material(
+            "AERIS brushed titanium",
+            "#9aa6ae",
+            metallic=0.94,
+            roughness=0.23,
+            anisotropy=0.50,
+        ),
+        "heat": material("AERIS high-temperature nozzle", "#453e4d", metallic=0.82, roughness=0.30, anisotropy=0.24),
+        "heat_inner": material("AERIS exhaust ceramic liner", "#17121a", metallic=0.40, roughness=0.61),
+        "glass": material(
+            "AERIS canopy laminate",
+            "#493d86",
+            metallic=0.12,
+            roughness=0.08,
+            alpha=0.39,
+            transmission=0.68,
+            coat_weight=0.74,
+            coat_roughness=0.045,
+            ior=1.52,
+        ),
+        "sensor": material(
+            "AERIS multispectral window",
+            "#1a6f91",
+            metallic=0.34,
+            roughness=0.11,
+            emission="#44bfff",
+            emission_strength=0.45,
+            coat_weight=0.55,
+            coat_roughness=0.06,
+        ),
         "cyan": material("AERIS cyan witness", "#55dcff", metallic=0.46, roughness=0.18, emission="#3fbfff", emission_strength=1.2),
         "violet": material("AERIS violet witness", "#8a67ff", metallic=0.55, roughness=0.18, emission="#7954ff", emission_strength=0.85),
         "pink": material("AERIS fictional-field witness", "#ff70d6", metallic=0.42, roughness=0.20, emission="#ff57d2", emission_strength=1.1),
         "thermal": material("AERIS thermal exchanger candidate", "#c7a6ff", metallic=0.72, roughness=0.21),
         "cockpit": material("AERIS cockpit interior", "#111421", metallic=0.05, roughness=0.74),
+        "cockpit_soft": material("AERIS cockpit restraint textile", "#2a2435", metallic=0.0, roughness=0.90),
+        "gear_bay": material("AERIS landing bay interior", "#28303d", metallic=0.58, roughness=0.46),
         "em_shield": material(
             "AERIS faceted EM shield witness",
             "#d8b66d",
@@ -1000,6 +1267,8 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         reference_metrics=json.dumps(reference, sort_keys=True),
         no_weapons=True,
         scientific_status="concept geometry; not flight-qualified or CFD-validated",
+        geometry_revision="AERIS-X R2 blended-airframe detail pass",
+        surface_model_note="PBR-ready authored geometry; no claim of CFD or structural validation",
     )
 
     fuselage_group = empty(
@@ -1030,7 +1299,7 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         ],
         mats["shell_light"],
         fuselage_group,
-        segments=48,
+        segments=64,
         superellipse=0.74,
         chine=0.75,
         part_id="fuselage",
@@ -1047,6 +1316,80 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         fuselage_group,
         material_role="lower-keel",
     )
+
+    # The pressure body transitions into a load-carrying centerbody before the
+    # main wing. These authored airfoil lofts soften the root discontinuity and
+    # give the aircraft a credible blended lifting-body volume.
+    centerbody_stations = [
+        (0.24, 6.34, -4.55, 0.047),
+        (0.72, 5.62, -4.34, 0.045),
+        (1.16, 4.56, -4.02, 0.043),
+        (1.58, 3.34, -3.62, 0.040),
+        (1.92, 2.46, -3.26, 0.036),
+    ]
+    for side in (-1, 1):
+        label = mirrored_name(side)
+        wing_surface(
+            f"BLENDED_CENTERBODY_{label}",
+            side,
+            centerbody_stations,
+            mats["shell_light"],
+            fuselage_group,
+            chord_steps=36,
+            z_base=0.055,
+            part_id="fuselage",
+            material_role="blended-centerbody-skin",
+            aerodynamic_surface="lifting-body-root-transition",
+        )
+        swept_rectangular_path(
+            f"FOREBODY_CHINE_{label}",
+            [
+                (side * 0.10, 8.02, 0.09),
+                (side * 0.34, 7.18, 0.25),
+                (side * 0.61, 6.06, 0.42),
+                (side * 0.91, 4.67, 0.55),
+                (side * 1.17, 2.62, 0.50),
+                (side * 1.30, 0.48, 0.39),
+            ],
+            0.042,
+            0.026,
+            mats["edge"],
+            fuselage_group,
+            bevel=0.008,
+            material_role="chine-edge-cap",
+            aerodynamic_surface="forebody-chine",
+        )
+
+    # Flush maintenance panels and fine gap lines break up the broad upper skin
+    # without relying on texture downloads or decorative armor.
+    dorsal_panels = [
+        ("FORWARD", [(-0.34, 1.66), (0.34, 1.66), (0.42, 0.72), (-0.42, 0.72)], 0.665),
+        ("MID", [(-0.47, -1.00), (0.47, -1.00), (0.42, -2.08), (-0.42, -2.08)], 0.638),
+        ("AFT", [(-0.38, -2.42), (0.38, -2.42), (0.30, -3.46), (-0.30, -3.46)], 0.535),
+    ]
+    for panel_name, footprint, height in dorsal_panels:
+        extruded_polygon(
+            f"DORSAL_SERVICE_PANEL_{panel_name}",
+            footprint,
+            height,
+            0.022,
+            mats["shell_mid"],
+            fuselage_group,
+            bevel=0.018,
+            material_role="flush-maintenance-panel",
+            maintenance_detail=True,
+        )
+        # Recessed longitudinal latch witness.
+        y_center = sum(point[1] for point in footprint) / len(footprint)
+        swept_rectangular_path(
+            f"DORSAL_PANEL_LATCH_{panel_name}",
+            [(-0.07, y_center + 0.15, height + 0.018), (0.07, y_center + 0.15, height + 0.018)],
+            0.025,
+            0.014,
+            mats["seal"],
+            fuselage_group,
+            material_role="maintenance-latch-gap",
+        )
 
     canopy_group = empty(
         "PART_CANOPY",
@@ -1067,7 +1410,7 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         ],
         mats["glass"],
         canopy_group,
-        segments=40,
+        segments=56,
         superellipse=0.84,
         part_id="canopy",
         material_role="transparent-pressure-laminate",
@@ -1083,23 +1426,107 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         bevel=0.08,
         material_role="cockpit-interior",
     )
-    ribbon(
+    swept_rectangular_path(
         "CANOPY_CENTER_FRAME",
-        (0.0, 5.52),
-        (0.0, 2.40),
-        0.035,
-        1.16,
+        [
+            (0.0, 5.56, 0.59),
+            (0.0, 5.02, 0.91),
+            (0.0, 4.28, 1.20),
+            (0.0, 3.55, 1.26),
+            (0.0, 2.86, 1.05),
+            (0.0, 2.39, 0.67),
+        ],
+        0.040,
+        0.028,
         mats["edge"],
         canopy_group,
-        material_role="canopy-frame",
+        bevel=0.008,
+        material_role="canopy-longitudinal-frame",
+    )
+    for side in (-1, 1):
+        swept_rectangular_path(
+            f"CANOPY_SILL_{mirrored_name(side)}",
+            [
+                (side * 0.05, 5.54, 0.56),
+                (side * 0.31, 5.06, 0.66),
+                (side * 0.55, 4.36, 0.70),
+                (side * 0.62, 3.54, 0.68),
+                (side * 0.49, 2.83, 0.62),
+                (side * 0.18, 2.39, 0.58),
+            ],
+            0.055,
+            0.034,
+            mats["titanium"],
+            canopy_group,
+            bevel=0.010,
+            material_role="canopy-perimeter-frame",
+        )
+    for frame_name, y, width, base_z, crown_z in [
+        ("FORWARD", 4.78, 0.44, 0.70, 1.08),
+        ("MID", 3.75, 0.62, 0.70, 1.25),
+        ("AFT", 2.92, 0.50, 0.64, 1.02),
+    ]:
+        swept_rectangular_path(
+            f"CANOPY_ARCH_{frame_name}",
+            [
+                (-width, y, base_z),
+                (-width * 0.58, y, crown_z - 0.10),
+                (0.0, y, crown_z),
+                (width * 0.58, y, crown_z - 0.10),
+                (width, y, base_z),
+            ],
+            0.034,
+            0.030,
+            mats["edge"],
+            canopy_group,
+            bevel=0.007,
+            material_role="canopy-transverse-frame",
+        )
+
+    # Two slim seat shells, head restraints and a canted instrument coaming are
+    # visible through the laminate at close zoom.
+    for seat_index, seat_y in enumerate((4.25, 3.22), start=1):
+        extruded_polygon(
+            f"COCKPIT_SEAT_{seat_index}",
+            [(-0.24, seat_y + 0.26), (0.24, seat_y + 0.26), (0.21, seat_y - 0.24), (-0.21, seat_y - 0.24)],
+            0.66,
+            0.23,
+            mats["cockpit_soft"],
+            canopy_group,
+            bevel=0.055,
+            material_role="seat-shell-and-restraint",
+        )
+        extruded_polygon(
+            f"COCKPIT_HEADREST_{seat_index}",
+            [(-0.14, seat_y + 0.03), (0.14, seat_y + 0.03), (0.13, seat_y - 0.18), (-0.13, seat_y - 0.18)],
+            0.92,
+            0.16,
+            mats["cockpit_soft"],
+            canopy_group,
+            bevel=0.04,
+            material_role="seat-head-restraint",
+        )
+    extruded_polygon(
+        "COCKPIT_INSTRUMENT_COAMING",
+        [(-0.36, 5.11), (0.36, 5.11), (0.31, 4.78), (-0.31, 4.78)],
+        0.79,
+        0.13,
+        mats["cockpit"],
+        canopy_group,
+        bevel=0.035,
+        material_role="instrument-coaming",
     )
 
     wing_stations = [
-        (0.70, 4.78, -4.05, 0.040),
-        (2.18, 3.20, -3.35, 0.038),
-        (3.58, 1.42, -2.42, 0.035),
-        (4.78, -0.12, -1.95, 0.032),
-        (5.52, -0.94, -1.60, 0.027),
+        (0.70, 4.78, -4.05, 0.046),
+        (1.42, 4.05, -3.76, 0.044),
+        (2.18, 3.20, -3.35, 0.041),
+        (2.88, 2.34, -2.90, 0.039),
+        (3.58, 1.42, -2.42, 0.036),
+        (4.20, 0.66, -2.15, 0.034),
+        (4.78, -0.12, -1.95, 0.031),
+        (5.26, -0.65, -1.73, 0.026),
+        (5.54, -0.95, -1.60, 0.020),
     ]
     for side in (-1, 1):
         label = mirrored_name(side)
@@ -1116,30 +1543,80 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
             wing_stations,
             mats["silver"],
             wing_group,
+            chord_steps=36,
             part_id=f"wing-{'left' if side < 0 else 'right'}",
             material_role="load-bearing-wing-skin",
             aerodynamic_surface="cranked-delta-wing",
         )
         # Nickel leading edge and iridescent spanwise seam.
-        ribbon(
+        swept_rectangular_path(
             f"LEADING_EDGE_WITNESS_{label}",
-            (side * 0.82, 4.57),
-            (side * 5.48, -0.91),
-            0.065,
-            0.19,
+            [
+                (side * 0.78, 4.70, 0.17),
+                (side * 1.46, 3.98, 0.16),
+                (side * 2.21, 3.14, 0.14),
+                (side * 2.91, 2.28, 0.12),
+                (side * 3.61, 1.36, 0.10),
+                (side * 4.23, 0.60, 0.08),
+                (side * 4.81, -0.18, 0.06),
+                (side * 5.28, -0.70, 0.045),
+                (side * 5.52, -0.95, 0.035),
+            ],
+            0.072,
+            0.042,
             mats["edge"],
             wing_group,
+            bevel=0.010,
             material_role="leading-edge-candidate",
         )
-        ribbon(
+        swept_rectangular_path(
             f"WING_LOAD_PATH_{label}",
-            (side * 1.18, 2.12),
-            (side * 4.62, -1.18),
-            0.032,
-            0.225,
+            [
+                (side * 1.18, 2.12, 0.245),
+                (side * 2.32, 1.22, 0.205),
+                (side * 3.45, 0.12, 0.165),
+                (side * 4.62, -1.18, 0.105),
+            ],
+            0.034,
+            0.020,
             mats["violet"],
             wing_group,
+            bevel=0.006,
             material_role="structural-witness-line",
+        )
+        # Flush panel fields follow the load path and introduce restrained
+        # roughness/material variation at close zoom.
+        panel_footprint = [
+            (side * 1.58, 1.34),
+            (side * 2.56, 0.86),
+            (side * 3.18, -0.26),
+            (side * 2.12, 0.15),
+        ]
+        extruded_polygon(
+            f"WING_COMPOSITE_PANEL_{label}",
+            panel_footprint,
+            0.205,
+            0.018,
+            mats["shell_mid"],
+            wing_group,
+            bevel=0.012,
+            material_role="wing-inspection-panel",
+            maintenance_detail=True,
+        )
+        swept_rectangular_path(
+            f"WING_TRAILING_SEAM_{label}",
+            [
+                (side * 1.45, -3.50, 0.08),
+                (side * 2.55, -3.05, 0.075),
+                (side * 3.68, -2.34, 0.065),
+                (side * 4.72, -1.92, 0.055),
+                (side * 5.28, -1.63, 0.04),
+            ],
+            0.030,
+            0.015,
+            mats["seal"],
+            wing_group,
+            material_role="control-surface-gap",
         )
         elevon = empty(
             f"PART_ELEVON_{label}",
@@ -1149,22 +1626,36 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
             interaction="selectable",
             articulation_axis="local-X",
         )
-        footprint = [
-            (side * 2.42, -2.49),
-            (side * 4.96, -1.91),
-            (side * 5.27, -1.62),
-            (side * 3.00, -2.93),
-        ]
-        extruded_polygon(
+        wing_surface(
             f"ELEVON_SURFACE_{label}",
-            footprint,
-            0.055,
-            0.085,
+            side,
+            [
+                (2.42, -2.43, -2.98, 0.060),
+                (3.70, -2.10, -2.48, 0.055),
+                (4.98, -1.70, -1.98, 0.050),
+                (5.28, -1.58, -1.82, 0.044),
+            ],
             mats["shell_dark"],
             elevon,
-            bevel=0.025,
+            chord_steps=14,
+            z_base=0.03,
             part_id=f"elevon-{'left' if side < 0 else 'right'}",
             material_role="control-surface",
+            aerodynamic_surface="all-moving-elevon",
+        )
+        swept_rectangular_path(
+            f"ELEVON_HINGE_LINE_{label}",
+            [
+                (side * 2.44, -2.42, 0.072),
+                (side * 3.70, -2.08, 0.066),
+                (side * 4.97, -1.68, 0.055),
+                (side * 5.27, -1.57, 0.045),
+            ],
+            0.035,
+            0.018,
+            mats["edge"],
+            elevon,
+            material_role="elevon-hinge-fairing",
         )
 
     for side in (-1, 1):
@@ -1184,6 +1675,35 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
             part_id=f"v-tail-{'left' if side < 0 else 'right'}",
             material_role="canted-tail-skin",
             aerodynamic_surface="canted-vertical-tail",
+        )
+        swept_rectangular_path(
+            f"VTAIL_LEADING_EDGE_{label}",
+            [
+                (side * 0.86, -1.60, 0.30),
+                (side * 1.19, -2.60, 1.64),
+                (side * 1.31, -2.98, 1.94),
+                (side * 1.33, -3.34, 1.93),
+            ],
+            0.050,
+            0.034,
+            mats["edge"],
+            fin_group,
+            bevel=0.008,
+            material_role="tail-leading-edge-cap",
+        )
+        swept_rectangular_path(
+            f"VTAIL_RUDDER_SEAM_{label}",
+            [
+                (side * 1.27, -3.63, 1.62),
+                (side * 1.10, -3.91, 1.24),
+                (side * 0.93, -4.22, 0.78),
+                (side * 0.84, -4.50, 0.34),
+            ],
+            0.026,
+            0.018,
+            mats["seal"],
+            fin_group,
+            material_role="rudder-gap",
         )
 
     # Embedded, selectable twin propulsion paths.
@@ -1211,11 +1731,31 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
             ],
             mats["shell_dark"],
             engine,
-            segments=36,
+            segments=48,
             superellipse=0.76,
             chine=0.4,
             part_id=f"engine-core-{'left' if side < 0 else 'right'}",
             material_role="engine-casing",
+        )
+        loft_patch(
+            f"ENGINE_SHOULDER_COWL_{label}",
+            center_x,
+            [
+                (-1.26, 0.51, 0.46, 0.01),
+                (-1.74, 0.55, 0.50, 0.01),
+                (-2.72, 0.57, 0.52, 0.00),
+                (-3.78, 0.54, 0.49, 0.00),
+                (-4.62, 0.49, 0.44, 0.00),
+                (-5.06, 0.44, 0.39, 0.00),
+            ],
+            math.pi * 0.03,
+            math.pi * 0.97,
+            mats["silver"],
+            engine,
+            arc_steps=28,
+            part_id=f"engine-core-{'left' if side < 0 else 'right'}",
+            material_role="blended-engine-cowl",
+            aerodynamic_surface="embedded-engine-shoulder",
         )
         fan_rotor(
             f"FAN_ROTOR_{label}",
@@ -1226,6 +1766,47 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
             engine,
             part_id=f"engine-core-{'left' if side < 0 else 'right'}",
             material_role="fan-rotor",
+        )
+        annular_face(
+            f"FAN_CASE_RING_{label}",
+            center_x,
+            -1.13,
+            0.355,
+            0.305,
+            mats["titanium"],
+            engine,
+            segments=48,
+            part_id=f"engine-core-{'left' if side < 0 else 'right'}",
+            material_role="fan-case-ring",
+        )
+        fan_rotor(
+            f"STATOR_ROTOR_{label}",
+            center_x,
+            -1.49,
+            0.30,
+            mats["titanium"],
+            engine,
+            phase=math.pi / 18,
+            blade_count=18,
+            part_id=f"engine-core-{'left' if side < 0 else 'right'}",
+            material_role="fan-stator-stage",
+        )
+        offset_loft_surface(
+            f"FAN_SPINNER_{label}",
+            center_x,
+            [
+                (-0.98, 0.025, 0.022, 0.0),
+                (-1.10, 0.10, 0.090, 0.0),
+                (-1.25, 0.155, 0.135, 0.0),
+                (-1.43, 0.12, 0.105, 0.0),
+                (-1.57, 0.045, 0.040, 0.0),
+            ],
+            mats["titanium"],
+            engine,
+            segments=32,
+            superellipse=0.90,
+            part_id=f"engine-core-{'left' if side < 0 else 'right'}",
+            material_role="fan-spinner",
         )
         # Hot-section witness spine behind the rotor.
         offset_loft_surface(
@@ -1242,6 +1823,19 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
             segments=28,
             material_role="engine-hot-core",
         )
+        for stage_index, stage_y in enumerate((-2.18, -3.04, -3.92, -4.56), start=1):
+            annular_face(
+                f"HOT_SECTION_RING_{label}_{stage_index:02d}",
+                center_x,
+                stage_y,
+                0.255 - stage_index * 0.010,
+                0.205 - stage_index * 0.010,
+                mats["heat"],
+                engine,
+                segments=36,
+                part_id=f"engine-core-{'left' if side < 0 else 'right'}",
+                material_role="hot-section-support-ring",
+            )
         nozzle = empty(
             f"PART_NOZZLE_{label}",
             root,
@@ -1257,6 +1851,74 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
             part_id=f"nozzle-{'left' if side < 0 else 'right'}",
             material_role="variable-area-nozzle",
         )
+        nozzle_surface(
+            f"NOZZLE_INTERIOR_{label}",
+            center_x,
+            mats["heat_inner"],
+            nozzle,
+            stations=[
+                (-5.18, 0.31, 0.275),
+                (-5.45, 0.285, 0.255),
+                (-5.72, 0.255, 0.230),
+                (-5.92, 0.225, 0.205),
+            ],
+            segments=64,
+            lobe_amplitude=0.025,
+            reverse_faces=True,
+            part_id=f"nozzle-{'left' if side < 0 else 'right'}",
+            material_role="exhaust-ceramic-liner",
+        )
+        fan_rotor(
+            f"REAR_TURBINE_FACE_{label}",
+            center_x,
+            -5.30,
+            0.225,
+            mats["engine"],
+            nozzle,
+            phase=math.pi / 24,
+            blade_count=20,
+            part_id=f"nozzle-{'left' if side < 0 else 'right'}",
+            material_role="rear-turbine-witness",
+        )
+        annular_face(
+            f"NOZZLE_THROAT_RING_{label}",
+            center_x,
+            -5.89,
+            0.285,
+            0.225,
+            mats["titanium"],
+            nozzle,
+            segments=48,
+            part_id=f"nozzle-{'left' if side < 0 else 'right'}",
+            material_role="nozzle-throat-edge",
+        )
+        for seam_index in range(12):
+            theta = 2 * math.pi * seam_index / 12
+            swept_rectangular_path(
+                f"NOZZLE_PETAL_SEAM_{label}_{seam_index + 1:02d}",
+                [
+                    (
+                        center_x + 0.425 * math.cos(theta),
+                        -5.09,
+                        0.375 * math.sin(theta),
+                    ),
+                    (
+                        center_x + 0.355 * math.cos(theta),
+                        -5.58,
+                        0.320 * math.sin(theta),
+                    ),
+                    (
+                        center_x + 0.296 * math.cos(theta),
+                        -5.90,
+                        0.276 * math.sin(theta),
+                    ),
+                ],
+                0.018,
+                0.012,
+                mats["titanium"],
+                nozzle,
+                material_role="nozzle-petal-seam",
+            )
 
     # Flush landing-gear-door suggestion: no toy wheels in cruise display.
     gear_specs = [
@@ -1281,6 +1943,55 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
             group,
             material_role="flush-gear-door",
             part_id=part_id,
+        )
+        center_x = sum(point[0] for point in footprint) / len(footprint)
+        center_y = sum(point[1] for point in footprint) / len(footprint)
+        inset = [
+            (
+                center_x + (point[0] - center_x) * 0.84,
+                center_y + (point[1] - center_y) * 0.84,
+            )
+            for point in footprint
+        ]
+        extruded_polygon(
+            f"GEAR_BAY_INSET_{label}",
+            inset,
+            -0.552,
+            0.014,
+            mats["gear_bay"],
+            group,
+            material_role="landing-bay-door-inner-panel",
+            part_id=part_id,
+            maintenance_detail=True,
+        )
+        swept_rectangular_path(
+            f"GEAR_DOOR_HINGE_{label}",
+            [
+                (footprint[0][0], footprint[0][1], -0.570),
+                (footprint[1][0], footprint[1][1], -0.570),
+            ],
+            0.026,
+            0.016,
+            mats["seal"],
+            group,
+            material_role="landing-door-hinge-gap",
+        )
+        latch_footprint = [
+            (
+                center_x + 0.045 * math.cos(2 * math.pi * index / 6),
+                center_y + 0.045 * math.sin(2 * math.pi * index / 6),
+            )
+            for index in range(6)
+        ]
+        extruded_polygon(
+            f"GEAR_DOOR_LATCH_{label}",
+            latch_footprint,
+            -0.570,
+            0.018,
+            mats["titanium"],
+            group,
+            material_role="landing-door-latch",
+            maintenance_detail=True,
         )
 
     # Attachment-point empties let the web configurator position its effects.

@@ -292,24 +292,35 @@ function drawHistoryMarkers(
   color: string,
   shape: "circle" | "diamond",
 ) {
-  if (points.length === 0) return;
+  if (points.length < 2) return;
+  const dash = shape === "diamond" ? [3, 5] : [];
+  drawSegmentPass(
+    context,
+    points,
+    front,
+    color,
+    front ? 0.82 : 0.62,
+    dash,
+    front ? 0.24 : 0.09,
+  );
+
   context.save();
   context.fillStyle = color;
-  context.globalAlpha = front ? 0.2 : 0.075;
-  for (const point of points) {
+  context.globalAlpha = front ? 0.34 : 0.12;
+  const markerStride = Math.max(1, Math.ceil(points.length / 30));
+  for (let index = 0; index < points.length; index += markerStride) {
+    const point = points[index];
     if ((point.depth >= 0) !== front) continue;
     if (shape === "diamond") {
       context.beginPath();
-      context.moveTo(point.x, point.y - 1.2);
-      context.lineTo(point.x + 1.2, point.y);
-      context.lineTo(point.x, point.y + 1.2);
-      context.lineTo(point.x - 1.2, point.y);
+      context.moveTo(point.x, point.y - 1.05);
+      context.lineTo(point.x + 1.05, point.y);
+      context.lineTo(point.x, point.y + 1.05);
+      context.lineTo(point.x - 1.05, point.y);
       context.closePath();
       context.fill();
     } else {
-      context.beginPath();
-      context.arc(point.x, point.y, 0.9, 0, TAU);
-      context.fill();
+      context.fillRect(point.x - 0.65, point.y - 0.65, 1.3, 1.3);
     }
   }
   context.restore();
@@ -338,18 +349,18 @@ function drawRecentTrail(
       section,
       front,
       color,
-      6,
+      4,
       dash,
-      (0.025 + age * 0.075) * visibility,
+      (0.018 + age * 0.052) * visibility,
     );
     drawSegmentPass(
       context,
       section,
       front,
       color,
-      front ? 2.2 : 1.7,
+      front ? 1.65 : 1.15,
       dash,
-      (0.2 + age * 0.72) * visibility,
+      (0.18 + age * 0.78) * visibility,
     );
   }
 }
@@ -651,12 +662,29 @@ function drawPlanetSurface(
     centerX + radius * 0.86,
     centerY - radius * 0.72,
   );
-  daylight.addColorStop(0, "rgba(1, 3, 12, 0.88)");
-  daylight.addColorStop(0.42, "rgba(3, 5, 18, 0.48)");
-  daylight.addColorStop(0.64, "rgba(10, 12, 28, 0.05)");
-  daylight.addColorStop(1, "rgba(255, 246, 224, 0.12)");
+  daylight.addColorStop(0, "rgba(1, 3, 12, 0.9)");
+  daylight.addColorStop(0.34, "rgba(3, 5, 18, 0.66)");
+  daylight.addColorStop(0.52, "rgba(5, 8, 22, 0.28)");
+  daylight.addColorStop(0.68, "rgba(10, 12, 28, 0.035)");
+  daylight.addColorStop(1, "rgba(255, 244, 218, 0.16)");
   context.fillStyle = daylight;
   context.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
+
+  if (bodyName !== "Moon" && bodyName !== "Mercury" && bodyName !== "Mars") {
+    const specular = context.createRadialGradient(
+      centerX + radius * 0.43,
+      centerY - radius * 0.38,
+      0,
+      centerX + radius * 0.43,
+      centerY - radius * 0.38,
+      radius * 0.72,
+    );
+    specular.addColorStop(0, "rgba(255, 252, 235, 0.2)");
+    specular.addColorStop(0.22, "rgba(236, 249, 255, 0.095)");
+    specular.addColorStop(1, "rgba(255, 255, 255, 0)");
+    context.fillStyle = specular;
+    context.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
+  }
 
   const limb = context.createRadialGradient(
     centerX,
@@ -667,8 +695,9 @@ function drawPlanetSurface(
     radius,
   );
   limb.addColorStop(0, "rgba(0, 0, 0, 0)");
-  limb.addColorStop(0.72, "rgba(0, 0, 0, 0.04)");
-  limb.addColorStop(1, "rgba(0, 0, 8, 0.46)");
+  limb.addColorStop(0.67, "rgba(0, 0, 0, 0.025)");
+  limb.addColorStop(0.9, "rgba(0, 0, 8, 0.18)");
+  limb.addColorStop(1, "rgba(0, 0, 8, 0.58)");
   context.fillStyle = limb;
   context.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
   context.restore();
@@ -688,14 +717,14 @@ function drawAtmosphericLimb(
   if (!airless) {
     context.strokeStyle = atmosphereColor;
     context.shadowColor = atmosphereColor;
-    context.shadowBlur = thin ? 8 : 17;
-    context.globalAlpha = thin ? 0.52 : 0.88;
-    context.lineWidth = thin ? 1.1 : Math.max(1.5, radius * 0.025);
+    context.shadowBlur = thin ? 6 : 13;
+    context.globalAlpha = thin ? 0.46 : 0.72;
+    context.lineWidth = thin ? 0.9 : Math.max(1.2, radius * 0.018);
     context.beginPath();
     context.arc(centerX, centerY, radius * 1.012, 0, TAU);
     context.stroke();
-    context.globalAlpha *= 0.42;
-    context.lineWidth = Math.max(1, radius * 0.018);
+    context.globalAlpha *= 0.32;
+    context.lineWidth = Math.max(0.8, radius * 0.012);
     context.beginPath();
     context.arc(centerX, centerY, radius * (thin ? 1.035 : 1.055), 0, TAU);
     context.stroke();
@@ -810,128 +839,171 @@ function drawSpacecraft(
   context.rotate(angle);
 
   if (isThrusting) {
-    const flicker = 1 + Math.sin(sample.timeS * 0.19) * 0.12;
+    const plumeLength = design === "cargo-spiraler" ? 32 : design === "ion-scout" ? 25 : 29;
     context.save();
     context.shadowColor = accent;
-    context.shadowBlur = 12;
+    context.shadowBlur = 8;
     context.fillStyle = accent;
-    context.globalAlpha = 0.62;
+    context.globalAlpha = 0.16;
     context.beginPath();
-    context.moveTo(-7, -2.5);
-    context.quadraticCurveTo(-16 * flicker, -4.5, -27 * flicker, 0);
-    context.quadraticCurveTo(-16 * flicker, 4.5, -7, 2.5);
+    context.moveTo(-8, -2.2);
+    context.quadraticCurveTo(-18, -2.7, -plumeLength, 0);
+    context.quadraticCurveTo(-18, 2.7, -8, 2.2);
     context.closePath();
     context.fill();
-    context.fillStyle = "#f8fcff";
-    context.globalAlpha = 0.9;
-    context.beginPath();
-    context.moveTo(-7, -1.25);
-    context.quadraticCurveTo(-13 * flicker, -2, -19 * flicker, 0);
-    context.quadraticCurveTo(-13 * flicker, 2, -7, 1.25);
-    context.closePath();
-    context.fill();
-    context.restore();
 
-    context.save();
-    context.fillStyle = accent;
-    context.globalAlpha = 0.38;
-    for (let particle = 0; particle < 6; particle += 1) {
-      const drift = ((sample.timeS * 0.08 + particle * 1.71) % 1) * 24;
-      const wobble = Math.sin(sample.timeS * 0.11 + particle * 2.3) * 3.3;
-      context.beginPath();
-      context.arc(-10 - drift, wobble, 0.55 + particle * 0.1, 0, TAU);
-      context.fill();
-    }
+    context.strokeStyle = accent;
+    context.lineCap = "round";
+    context.globalAlpha = 0.66;
+    context.lineWidth = 0.72;
+    context.beginPath();
+    context.moveTo(-8, 0);
+    context.lineTo(-plumeLength * 0.86, 0);
+    context.stroke();
+
+    context.strokeStyle = "rgba(244, 250, 255, 0.9)";
+    context.globalAlpha = 0.78;
+    context.lineWidth = 0.45;
+    context.beginPath();
+    context.moveTo(-8, 0);
+    context.lineTo(-plumeLength * 0.58, 0);
+    context.stroke();
     context.restore();
   }
 
+  // Four short acquisition arcs identify each propagated case without hiding
+  // the actual vehicle silhouette behind a large marker bubble.
   context.save();
   context.strokeStyle = accent;
-  context.globalAlpha = variant === "reference" ? 0.58 : 0.72;
-  context.lineWidth = 1;
-  context.setLineDash(variant === "interrupted" ? [2.5, 2.5] : []);
-  context.beginPath();
-  context.arc(0, 0, 13, 0, TAU);
-  context.stroke();
+  context.globalAlpha = variant === "reference" ? 0.5 : 0.65;
+  context.lineWidth = 0.85;
+  context.setLineDash(variant === "interrupted" ? [2, 2.4] : []);
+  for (let quadrant = 0; quadrant < 4; quadrant += 1) {
+    const start = quadrant * (TAU / 4) + 0.14;
+    context.beginPath();
+    context.arc(0, 0, 14.5, start, start + 0.37);
+    context.stroke();
+  }
   context.restore();
 
   context.shadowColor = accent;
-  context.shadowBlur = 10;
-  context.fillStyle = "#f8fcff";
-  context.strokeStyle = "rgba(3, 13, 23, 0.92)";
-  context.lineWidth = 1.1;
+  context.shadowBlur = 6;
+  const metal = context.createLinearGradient(0, -9, 0, 9);
+  metal.addColorStop(0, "#ffffff");
+  metal.addColorStop(0.45, "#dce3ec");
+  metal.addColorStop(0.7, "#f8fbfd");
+  metal.addColorStop(1, "#aab6c6");
+  const panel = context.createLinearGradient(-8, 0, 8, 0);
+  panel.addColorStop(0, "#24294f");
+  panel.addColorStop(0.48, "#59649c");
+  panel.addColorStop(1, "#272c55");
+
+  const drawPanel = (x: number, y: number, width: number, height: number) => {
+    context.save();
+    context.fillStyle = panel;
+    context.strokeStyle = accent;
+    context.globalAlpha = 0.94;
+    context.lineWidth = 0.55;
+    context.beginPath();
+    context.moveTo(x + 1.2, y);
+    context.lineTo(x + width - 0.8, y);
+    context.lineTo(x + width, y + height - 1);
+    context.lineTo(x + 0.8, y + height);
+    context.lineTo(x, y + 1);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    context.strokeStyle = "rgba(223, 239, 250, 0.28)";
+    context.beginPath();
+    context.moveTo(x + width / 2, y + 0.5);
+    context.lineTo(x + width / 2, y + height - 0.5);
+    context.moveTo(x + 0.6, y + height / 2);
+    context.lineTo(x + width - 0.6, y + height / 2);
+    context.stroke();
+    context.restore();
+  };
+
+  context.fillStyle = metal;
+  context.strokeStyle = "rgba(3, 13, 23, 0.9)";
+  context.lineWidth = 0.9;
 
   if (design === "cargo-spiraler") {
+    drawPanel(-5.5, -15.5, 12, 8);
+    drawPanel(-5.5, 7.5, 12, 8);
     context.beginPath();
-    context.roundRect(-7, -4.5, 15, 9, 2.5);
+    context.roundRect(-9, -5.1, 19, 10.2, 2.3);
     context.fill();
     context.stroke();
-    context.fillStyle = accent;
-    context.globalAlpha = 0.78;
-    context.fillRect(-4.5, -11, 9, 5);
-    context.fillRect(-4.5, 6, 9, 5);
-    context.globalAlpha = 1;
-    context.fillStyle = "#f8fcff";
     context.beginPath();
-    context.moveTo(12, 0);
-    context.lineTo(7, -3.5);
-    context.lineTo(7, 3.5);
+    context.moveTo(14, 0);
+    context.lineTo(9, -3.8);
+    context.lineTo(9, 3.8);
     context.closePath();
     context.fill();
     context.stroke();
+    context.fillStyle = "rgba(48, 57, 80, 0.88)";
+    context.fillRect(-7.5, -2.8, 4.2, 5.6);
   } else if (design === "ion-scout") {
+    drawPanel(-4.5, -10.5, 8, 5.2);
+    drawPanel(-4.5, 5.3, 8, 5.2);
     context.beginPath();
-    context.moveTo(11.5, 0);
-    context.bezierCurveTo(5.5, -2.8, -1.5, -3.6, -8, -2.1);
-    context.lineTo(-8, 2.1);
-    context.bezierCurveTo(-1.5, 3.6, 5.5, 2.8, 11.5, 0);
+    context.moveTo(13, 0);
+    context.bezierCurveTo(6.3, -3, -1.5, -3.8, -8.5, -2.2);
+    context.lineTo(-8.5, 2.2);
+    context.bezierCurveTo(-1.5, 3.8, 6.3, 3, 13, 0);
     context.closePath();
     context.fill();
     context.stroke();
-    context.fillStyle = accent;
-    context.globalAlpha = 0.72;
-    context.fillRect(-5.5, -8.5, 6.5, 4.2);
-    context.fillRect(-5.5, 4.3, 6.5, 4.2);
-    context.globalAlpha = 1;
   } else {
+    drawPanel(-4.5, -13.2, 10.5, 6.5);
+    drawPanel(-4.5, 6.7, 10.5, 6.5);
     context.beginPath();
-    context.moveTo(10, 0);
-    context.bezierCurveTo(7.3, -3.5, 2.5, -4.7, -5.8, -3.2);
-    context.lineTo(-7.2, -2.2);
-    context.lineTo(-7.2, 2.2);
-    context.lineTo(-5.8, 3.2);
-    context.bezierCurveTo(2.5, 4.7, 7.3, 3.5, 10, 0);
+    context.moveTo(12.5, 0);
+    context.bezierCurveTo(8.4, -3.5, 2.8, -4.8, -6.6, -3.3);
+    context.lineTo(-8.1, -2.2);
+    context.lineTo(-8.1, 2.2);
+    context.lineTo(-6.6, 3.3);
+    context.bezierCurveTo(2.8, 4.8, 8.4, 3.5, 12.5, 0);
     context.closePath();
     context.fill();
     context.stroke();
 
+    context.fillStyle = metal;
     context.beginPath();
-    context.moveTo(-3.4, -3.4);
-    context.lineTo(-7.5, -7.1);
-    context.lineTo(-7, -2.2);
+    context.moveTo(-3.8, -3.5);
+    context.lineTo(-8.2, -7.2);
+    context.lineTo(-7.8, -2.3);
     context.closePath();
     context.fill();
     context.stroke();
     context.beginPath();
-    context.moveTo(-3.4, 3.4);
-    context.lineTo(-7.5, 7.1);
-    context.lineTo(-7, 2.2);
+    context.moveTo(-3.8, 3.5);
+    context.lineTo(-8.2, 7.2);
+    context.lineTo(-7.8, 2.3);
     context.closePath();
     context.fill();
     context.stroke();
   }
 
   context.shadowBlur = 0;
-  context.fillStyle = "#071522";
+  context.fillStyle = "#151b2b";
   context.strokeStyle = accent;
-  context.lineWidth = 1;
+  context.lineWidth = 0.8;
   context.beginPath();
-  context.arc(3.1, 0, 2, 0, TAU);
+  context.ellipse(4.2, 0, 2.7, 1.9, 0, 0, TAU);
   context.fill();
   context.stroke();
 
-  context.fillStyle = "#dce7ed";
-  context.fillRect(-8.2, -2.1, 1.4, 4.2);
+  context.fillStyle = "#b7c3cf";
+  context.fillRect(-9, -1.7, 1.5, 3.4);
+  context.restore();
+
+  context.save();
+  context.fillStyle = accent;
+  context.globalAlpha = 0.72;
+  context.font = "600 7px ui-monospace, SFMono-Regular, Menlo, monospace";
+  context.textAlign = "left";
+  context.fillText(variant === "reference" ? "REF" : "INT", point.x + 13, point.y - 12);
   context.restore();
 }
 
@@ -968,8 +1040,9 @@ function drawScene(
     Math.max(width, height) * 0.8,
   );
   backdrop.addColorStop(0, "#0a1a28");
-  backdrop.addColorStop(0.55, "#06101c");
-  backdrop.addColorStop(1, "#030812");
+  backdrop.addColorStop(0.48, "#07131f");
+  backdrop.addColorStop(0.8, "#040b15");
+  backdrop.addColorStop(1, "#02060d");
   context.fillStyle = backdrop;
   context.fillRect(0, 0, width, height);
 
@@ -981,16 +1054,16 @@ function drawScene(
   stellarHaze.addColorStop(1, "rgba(83, 57, 153, 0)");
   context.fillStyle = stellarHaze;
   context.fillRect(0, 0, width, height);
-  for (let index = 0; index < 132; index += 1) {
+  for (let index = 0; index < 96; index += 1) {
     const x = (((index * 577) % 997) / 997) * width;
     const y = (((index * 293 + 71) % 991) / 991) * height;
-    const radius = index % 23 === 0 ? 1.25 : index % 7 === 0 ? 0.82 : 0.43;
+    const radius = index % 29 === 0 ? 1.05 : index % 7 === 0 ? 0.7 : 0.36;
     context.fillStyle =
       index % 17 === 0
-        ? "rgba(255, 216, 181, 0.6)"
+        ? "rgba(255, 216, 181, 0.5)"
         : index % 7 === 0
-          ? "rgba(156, 221, 255, 0.58)"
-          : "rgba(232, 239, 255, 0.32)";
+          ? "rgba(156, 221, 255, 0.48)"
+          : "rgba(232, 239, 255, 0.25)";
     if (radius > 1) {
       context.shadowColor = context.fillStyle;
       context.shadowBlur = 5;
@@ -1021,18 +1094,6 @@ function drawScene(
   context.beginPath();
   context.arc(sunX, sunY, sunRadius * 4.2, 0, TAU);
   context.fill();
-  context.save();
-  context.translate(sunX, sunY);
-  context.strokeStyle = "rgba(255, 216, 144, 0.18)";
-  context.lineWidth = 0.7;
-  for (let ray = 0; ray < 12; ray += 1) {
-    context.rotate(TAU / 12);
-    context.beginPath();
-    context.moveTo(sunRadius * 1.28, 0);
-    context.lineTo(sunRadius * (2.2 + (ray % 3) * 0.26), 0);
-    context.stroke();
-  }
-  context.restore();
   const sunDisc = context.createRadialGradient(
     sunX - sunRadius * 0.3,
     sunY - sunRadius * 0.35,
@@ -1048,6 +1109,20 @@ function drawScene(
   context.beginPath();
   context.arc(sunX, sunY, sunRadius, 0, TAU);
   context.fill();
+  context.save();
+  context.strokeStyle = "rgba(255, 222, 161, 0.26)";
+  context.lineWidth = 0.65;
+  context.beginPath();
+  context.moveTo(sunX - sunRadius * 1.75, sunY);
+  context.lineTo(sunX - sunRadius * 1.2, sunY);
+  context.moveTo(sunX + sunRadius * 1.2, sunY);
+  context.lineTo(sunX + sunRadius * 1.75, sunY);
+  context.moveTo(sunX, sunY - sunRadius * 1.75);
+  context.lineTo(sunX, sunY - sunRadius * 1.2);
+  context.moveTo(sunX, sunY + sunRadius * 1.2);
+  context.lineTo(sunX, sunY + sunRadius * 1.75);
+  context.stroke();
+  context.restore();
 
   const followed = options.interruptedCurrent ?? options.referenceCurrent;
   const followYaw =
@@ -1104,8 +1179,8 @@ function drawScene(
         .map((sample) => projectSample(sample, projection))
     : [];
 
-  drawSegmentPass(context, targetRing, false, PALE, 1.1, [6, 7], 0.34);
-  drawSegmentPass(context, initialRing, false, CYAN, 0.8, [2, 6], 0.2);
+  drawSegmentPass(context, targetRing, false, PALE, 0.8, [5, 8], 0.2);
+  drawSegmentPass(context, initialRing, false, CYAN, 0.65, [2, 7], 0.14);
   drawHistoryMarkers(context, referenceHistoryPoints, false, CYAN, "circle");
   drawHistoryMarkers(
     context,
@@ -1116,7 +1191,7 @@ function drawScene(
   );
   drawRecentTrail(context, referenceRecentPoints, false, CYAN);
   drawRecentTrail(context, interruptedRecentPoints, false, AMBER, [7, 5]);
-  drawSegmentPass(context, outageRecentPoints, false, AMBER, 5, [], 0.1);
+  drawSegmentPass(context, outageRecentPoints, false, AMBER, 3.2, [], 0.08);
 
   const earthScreenRadius = options.earthRadiusM * projection.scale;
   const bodyRotation =
@@ -1131,15 +1206,16 @@ function drawScene(
     projection.centerY,
     earthScreenRadius * 1.18,
   );
-  atmosphere.addColorStop(0, options.bodyVisual.atmosphere);
-  atmosphere.addColorStop(0.72, options.bodyVisual.atmosphere);
+  atmosphere.addColorStop(0, "rgba(255, 255, 255, 0)");
+  atmosphere.addColorStop(0.57, options.bodyVisual.atmosphere);
+  atmosphere.addColorStop(0.76, options.bodyVisual.atmosphere);
   atmosphere.addColorStop(1, "rgba(255, 255, 255, 0)");
   context.fillStyle = atmosphere;
   context.beginPath();
   context.arc(
     projection.centerX,
     projection.centerY,
-    earthScreenRadius * 1.2,
+    earthScreenRadius * 1.17,
     0,
     TAU,
   );
@@ -1169,8 +1245,8 @@ function drawScene(
     drawSaturnRings(context, options.earthRadiusM, projection, true);
   }
 
-  drawSegmentPass(context, targetRing, true, PALE, 1.35, [6, 7], 0.7);
-  drawSegmentPass(context, initialRing, true, CYAN, 0.9, [2, 6], 0.34);
+  drawSegmentPass(context, targetRing, true, PALE, 1.05, [5, 8], 0.62);
+  drawSegmentPass(context, initialRing, true, CYAN, 0.7, [2, 7], 0.28);
   drawHistoryMarkers(context, referenceHistoryPoints, true, CYAN, "circle");
   drawHistoryMarkers(
     context,
@@ -1181,7 +1257,7 @@ function drawScene(
   );
   drawRecentTrail(context, referenceRecentPoints, true, CYAN);
   drawRecentTrail(context, interruptedRecentPoints, true, AMBER, [7, 5]);
-  drawSegmentPass(context, outageRecentPoints, true, AMBER, 5, [], 0.16);
+  drawSegmentPass(context, outageRecentPoints, true, AMBER, 3.2, [], 0.13);
 
   drawSpacecraft(
     context,
@@ -1482,6 +1558,7 @@ export function OrbitScene({
   return (
     <section
       className={`orbit-scene ${className}`.trim()}
+      data-playing={isPlaying ? "true" : "false"}
       aria-label="Interactive three-dimensional mission view"
     >
       <div className="orbit-scene__toolbar" aria-label="Mission view controls">

@@ -58,6 +58,9 @@ def make_material(
     transmission: float = 0.0,
     emission: str | None = None,
     emission_strength: float = 0.0,
+    coat: float = 0.0,
+    coat_roughness: float = 0.35,
+    sheen: float = 0.0,
 ) -> bpy.types.Material:
     material = bpy.data.materials.new(name)
     material.diffuse_color = rgba(color, alpha)
@@ -74,6 +77,17 @@ def make_material(
         if emission and "Emission Color" in node.inputs:
             node.inputs["Emission Color"].default_value = rgba(emission)
             node.inputs["Emission Strength"].default_value = emission_strength
+        if "Coat Weight" in node.inputs:
+            node.inputs["Coat Weight"].default_value = coat
+        if "Coat Roughness" in node.inputs:
+            node.inputs["Coat Roughness"].default_value = coat_roughness
+        if "Sheen Weight" in node.inputs:
+            node.inputs["Sheen Weight"].default_value = sheen
+    material["pbr_finish"] = (
+        "coated technical textile" if coat > 0.08 else
+        "woven technical textile" if sheen > 0.08 else
+        "engineered surface"
+    )
     return material
 
 
@@ -337,6 +351,209 @@ def curve_tube(
     return object_
 
 
+def mesh_object(
+    name: str,
+    parent: bpy.types.Object,
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...] | list[int]],
+    material: bpy.types.Material,
+    role: str,
+    *,
+    part_id: str | None = None,
+    cutaway: bool = False,
+) -> bpy.types.Object:
+    """Create a smooth authored mesh without relying on a stock primitive."""
+    mesh = bpy.data.meshes.new(f"{name}_mesh")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.validate(clean_customdata=False)
+    mesh.update(calc_edges=True)
+    object_ = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(object_)
+    object_.parent = parent
+    assign_material(object_, material)
+    smooth(object_)
+    tag(object_, role=role, part_id=part_id, cutaway=cutaway)
+    return object_
+
+
+def lofted_round_rect(
+    name: str,
+    parent: bpy.types.Object,
+    sections: list[tuple[float, float, float, float]],
+    material: bpy.types.Material,
+    role: str,
+    *,
+    y_center: float,
+    part_id: str | None = None,
+    corner_ratio: float = 0.34,
+) -> bpy.types.Object:
+    """Tapered eight-sided soft-shell volume.
+
+    Each section is ``(z, half_width, half_depth, y_offset)``. The authored
+    section changes read as sewn/formed equipment rather than a bevelled box.
+    """
+    vertices: list[tuple[float, float, float]] = []
+    for z, width, depth, y_offset in sections:
+        corner_x = width * corner_ratio
+        corner_y = depth * corner_ratio
+        outline = (
+            (-width + corner_x, -depth), (width - corner_x, -depth),
+            (width, -depth + corner_y), (width, depth - corner_y),
+            (width - corner_x, depth), (-width + corner_x, depth),
+            (-width, depth - corner_y), (-width, -depth + corner_y),
+        )
+        vertices.extend((x, y_center + y_offset + y, z) for x, y in outline)
+    faces: list[tuple[int, ...]] = []
+    faces.append(tuple(reversed(range(8))))
+    for ring in range(len(sections) - 1):
+        base = ring * 8
+        next_base = (ring + 1) * 8
+        for index in range(8):
+            following = (index + 1) % 8
+            faces.append((base + index, base + following, next_base + following, next_base + index))
+    final = (len(sections) - 1) * 8
+    faces.append(tuple(final + index for index in range(8)))
+    result = mesh_object(name, parent, vertices, faces, material, role, part_id=part_id)
+    bevel = result.modifiers.new("Soft equipment transitions", "BEVEL")
+    bevel.width = 0.012
+    bevel.segments = 3
+    bevel.limit_method = "ANGLE"
+    result["construction"] = "authored tapered soft-shell loft"
+    return result
+
+
+def helmet_dome(
+    name: str,
+    parent: bpy.types.Object,
+    material: bpy.types.Material,
+    role: str,
+    *,
+    part_id: str | None = None,
+    cutaway: bool = True,
+) -> bpy.types.Object:
+    """Build an anthropometric pressure-shell dome with a true face opening."""
+    sections = (
+        (1.350, 0.120, 0.115, 0.014),
+        (1.385, 0.167, 0.165, 0.012),
+        (1.460, 0.188, 0.190, 0.010),
+        (1.565, 0.190, 0.197, 0.012),
+        (1.665, 0.170, 0.178, 0.018),
+        (1.735, 0.112, 0.125, 0.024),
+        (1.770, 0.025, 0.030, 0.030),
+    )
+    segment_count = 40
+    vertices: list[tuple[float, float, float]] = []
+    for z, radius_x, radius_y, center_y in sections:
+        for segment in range(segment_count):
+            theta = math.tau * segment / segment_count
+            vertices.append((radius_x * math.sin(theta), center_y + radius_y * math.cos(theta), z))
+    faces: list[tuple[int, ...]] = []
+    # Front is negative Y (theta ~= pi). Leaving these faces absent makes the
+    # visor a genuine aperture instead of an alpha-painted opaque sphere.
+    for ring in range(len(sections) - 1):
+        z_mid = (sections[ring][0] + sections[ring + 1][0]) * 0.5
+        for segment in range(segment_count):
+            next_segment = (segment + 1) % segment_count
+            theta_mid = math.tau * (segment + 0.5) / segment_count
+            front_delta = abs((theta_mid - math.pi + math.pi) % math.tau - math.pi)
+            aperture = 1.02 if z_mid < 1.63 else 0.82
+            if 1.405 < z_mid < 1.695 and front_delta < aperture:
+                continue
+            a = ring * segment_count + segment
+            b = ring * segment_count + next_segment
+            c = (ring + 1) * segment_count + next_segment
+            d = (ring + 1) * segment_count + segment
+            faces.append((a, b, c, d))
+    result = mesh_object(
+        name, parent, vertices, faces, material, role, part_id=part_id, cutaway=cutaway,
+    )
+    result["construction"] = "segmented anthropometric pressure shell"
+    return result
+
+
+def curved_visor(
+    name: str,
+    parent: bpy.types.Object,
+    material: bpy.types.Material,
+    role: str,
+    *,
+    z_min: float,
+    z_max: float,
+    outward: float,
+    part_id: str | None = None,
+    cutaway: bool = True,
+) -> bpy.types.Object:
+    """A double-curved rectangular visor panel sized to the face aperture."""
+    columns = 20
+    rows = 14
+    vertices: list[tuple[float, float, float]] = []
+    for row in range(rows + 1):
+        v = -1.0 + 2.0 * row / rows
+        z = z_min + (z_max - z_min) * (v + 1.0) * 0.5
+        width = 0.158 * (1.0 - 0.12 * abs(v) ** 2.2)
+        for column in range(columns + 1):
+            u = -1.0 + 2.0 * column / columns
+            x = width * u
+            y = -0.181 - outward + 0.027 * u * u + 0.014 * v * v
+            vertices.append((x, y, z))
+    faces: list[tuple[int, ...]] = []
+    stride = columns + 1
+    for row in range(rows):
+        for column in range(columns):
+            a = row * stride + column
+            faces.append((a, a + 1, a + stride + 1, a + stride))
+    result = mesh_object(
+        name, parent, vertices, faces, material, role, part_id=part_id, cutaway=cutaway,
+    )
+    result["construction"] = "compound-curved replaceable visor"
+    return result
+
+
+def boot_sole(
+    name: str,
+    parent: bpy.types.Object,
+    material: bpy.types.Material,
+    role: str,
+    *,
+    depth: float,
+    style: str | None = None,
+) -> bpy.types.Object:
+    """Create a slim, rounded foot-shaped outsole in shin-local coordinates."""
+    heel_y = 0.095
+    toe_y = -depth
+    outline = (
+        (-0.065, heel_y), (0.065, heel_y),
+        (0.087, 0.058), (0.103, -0.045),
+        (0.096, toe_y + 0.042), (0.054, toe_y),
+        (0.0, toe_y - 0.010), (-0.054, toe_y),
+        (-0.096, toe_y + 0.042), (-0.103, -0.045),
+        (-0.087, 0.058),
+    )
+    lower = tuple((x, y, -0.444) for x, y in outline)
+    upper = tuple(
+        (x * 0.91, y * 0.965, -0.416 + 0.006 * max(0.0, (-y) / max(depth, 0.001)))
+        for x, y in outline
+    )
+    vertices = list(lower + upper)
+    count = len(outline)
+    faces: list[tuple[int, ...]] = [
+        tuple(reversed(range(count))),
+        tuple(count + i for i in range(count)),
+    ]
+    for index in range(count):
+        following = (index + 1) % count
+        faces.append((index, following, count + following, count + index))
+    result = mesh_object(name, parent, vertices, faces, material, role)
+    bevel = result.modifiers.new("Rounded outsole edge", "BEVEL")
+    bevel.width = 0.010
+    bevel.segments = 4
+    bevel.limit_method = "ANGLE"
+    if style:
+        result["bootStyle"] = style
+    result["construction"] = "replaceable shaped outsole"
+    return result
+
+
 def duplicate_object(
     source: bpy.types.Object,
     name: str,
@@ -398,15 +615,32 @@ def concept_materials(concept: str) -> dict[str, bpy.types.Material]:
             "accent": "#d9af5f", "metal": "#81785f", "dust": "#755d52", "assist": "#9c7e50",
         },
     }[concept]
-    result = {
-        role: make_material(f"{concept}_{role}", color, metallic=0.1 if role not in {"metal", "assist"} else 0.7,
-                            roughness=0.35 if role in {"shell", "secondaryShell"} else 0.48)
-        for role, color in palettes.items()
-    }
+    result = {}
+    for role, color in palettes.items():
+        is_metal = role in {"metal", "assist"}
+        is_outer = role in {"shell", "secondaryShell"}
+        result[role] = make_material(
+            f"{concept}_{role}",
+            color,
+            metallic=0.68 if is_metal else 0.035,
+            roughness=0.26 if is_metal else (0.38 if is_outer else 0.64),
+            coat=0.22 if is_outer else (0.1 if is_metal else 0.0),
+            coat_roughness=0.42 if is_outer else 0.24,
+            sheen=0.16 if role in {"shell", "secondaryShell", "underlayer", "dust"} else 0.0,
+        )
+    result["seam"] = make_material(f"{concept}_seam", "#27313a" if concept != "vector" else "#a58ac0", roughness=0.78, sheen=0.12)
+    result["sole"] = make_material(f"{concept}_sole", "#20252c" if concept != "vector" else "#0e1017", roughness=0.82)
+    result["lining"] = make_material(f"{concept}_lining", "#323b45" if concept != "vector" else "#1a1823", roughness=0.9, sheen=0.2)
     result["skin"] = make_material(f"{concept}_skin", "#9b6957", roughness=0.62)
     result["hair"] = make_material(f"{concept}_hair", "#2b2024", roughness=0.7)
-    result["visor"] = make_material(f"{concept}_visor", "#79b9d0", metallic=0.15, roughness=0.09, alpha=0.36, transmission=0.3)
-    result["sunVisor"] = make_material(f"{concept}_sunVisor", "#c48e3d", metallic=0.48, roughness=0.16, alpha=0.62)
+    result["visor"] = make_material(
+        f"{concept}_visor", "#79b9d0", metallic=0.02, roughness=0.045,
+        alpha=0.24, transmission=0.62, coat=1.0, coat_roughness=0.035,
+    )
+    result["sunVisor"] = make_material(
+        f"{concept}_sunVisor", "#c48e3d", metallic=0.32, roughness=0.11,
+        alpha=0.52, transmission=0.18, coat=0.75, coat_roughness=0.08,
+    )
     result["light"] = make_material(f"{concept}_light", "#a8f4ff", metallic=0.12, roughness=0.18,
                                     emission="#91efff", emission_strength=4.0)
     result["haptic"] = make_material(f"{concept}_haptic", "#f0a8dc", metallic=0.14, roughness=0.28,
@@ -417,7 +651,19 @@ def concept_materials(concept: str) -> dict[str, bpy.types.Material]:
 def build_concept(source_object: bpy.types.Object, concept: str, display_name: str) -> bpy.types.Object:
     materials = concept_materials(concept)
     source = source_object.data
-    root = empty(f"CONCEPT_{display_name}", conceptVariant=concept, display_name=display_name)
+    root = empty(
+        f"CONCEPT_{display_name}",
+        conceptVariant=concept,
+        display_name=display_name,
+        design_revision="anatomical-tailoring-v2",
+        authored_in="Blender 5",
+    )
+    concept_proportions = {
+        "selene": (0.99, 1.00, 1.00),
+        "areo": (1.025, 1.035, 1.005),
+        "vector": (0.965, 0.985, 1.015),
+    }
+    root.scale = concept_proportions[concept]
     body = empty(f"{display_name}_BODY", root, rig_role="body")
 
     # Anatomical rig pivots measured against the 1.69 m Blender Studio body.
@@ -439,7 +685,10 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
     shin_l = empty(f"{display_name}_SHIN_L", leg_l, knee_l - hip_l, rig_role="shin_l")
     shin_r = empty(f"{display_name}_SHIN_R", leg_r, knee_r - hip_r, rig_role="shin_r")
 
-    expansion = 0.012 if concept == "vector" else 0.025
+    # A pressure garment is visibly thicker than skin, but its silhouette still
+    # follows the wearer. Conservative offsets avoid the inflated toy look of
+    # the earlier build while leaving room for layered restraint panels.
+    expansion = 0.010 if concept == "vector" else (0.019 if concept == "areo" else 0.017)
     shell_role = "underlayer" if concept == "vector" else "shell"
     shell_material = materials[shell_role]
 
@@ -455,9 +704,12 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
     layer_group = part(body, "torso-layers", f"{display_name} protective torso layers", explode=(0, -0.055, 0.08))
     mesh_from_source_region(
         source, f"{display_name}_ribbed_restraint_layer",
-        lambda c: 0.91 <= c.z < 1.34 and abs(c.x) < 0.25,
+        lambda c: (
+            0.93 <= c.z < 1.34 and abs(c.x) < 0.245 and
+            (c.y < -0.052 or c.y > 0.038)
+        ),
         parent=layer_group, pivot=Vector(), material=materials["secondaryShell"], role="secondaryShell",
-        expansion=expansion + (0.009 if concept != "vector" else 0.004), cutaway=True,
+        expansion=expansion + (0.010 if concept != "vector" else 0.005), cutaway=True,
     )
 
     lower_group = part(body, "lower-body", f"{display_name} lower body", explode=(0, 0.0, -0.06))
@@ -466,6 +718,38 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
         lambda c: 0.70 <= c.z < 0.96 and abs(c.x) < 0.245,
         parent=lower_group, pivot=Vector(), material=materials["secondaryShell"], role="secondaryShell",
         expansion=expansion, cutaway=concept != "vector",
+    )
+
+    # Anatomical collar/yoke and waist transition hide region boundaries while
+    # communicating a continuous sewn restraint architecture.
+    mesh_from_source_region(
+        source, f"{display_name}_contoured_shoulder_yoke",
+        lambda c: 1.285 <= c.z < 1.395 and abs(c.x) < 0.285 and c.y < -0.015,
+        parent=layer_group, pivot=Vector(), material=materials["secondaryShell"], role="secondaryShell",
+        expansion=expansion + 0.014, cutaway=True,
+    )
+    mesh_from_source_region(
+        source, f"{display_name}_flexible_waist_transition",
+        lambda c: 0.835 <= c.z < 0.925 and abs(c.x) < 0.24,
+        parent=lower_group, pivot=Vector(), material=materials["underlayer"], role="underlayer",
+        expansion=expansion + 0.006, cutaway=True,
+    )
+    for side in (-1, 1):
+        curve_tube(
+            f"{display_name}_{'left' if side < 0 else 'right'}_princess_seam",
+            layer_group,
+            [
+                (side * 0.105, -0.164, 0.96),
+                (side * 0.125, -0.176, 1.10),
+                (side * 0.145, -0.158, 1.25),
+                (side * 0.185, -0.112, 1.35),
+            ],
+            materials["seam"], "seam", radius=0.0032,
+        )
+    curve_tube(
+        f"{display_name}_sternum_pressure_zip_guard", layer_group,
+        [(0, -0.177, 0.96), (0, -0.188, 1.16), (0, -0.151, 1.34)],
+        materials["seam"], "seam", radius=0.0036,
     )
 
     for side, arm, forearm, shoulder, elbow in (
@@ -480,10 +764,15 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             parent=shoulder_part, pivot=shoulder, material=shell_material, role=shell_role,
             expansion=expansion, cutaway=concept != "vector",
         )
-        torus(
-            f"{display_name}_{suffix}_shoulder_bearing", shoulder_part,
-            (0, -0.005, 0), 0.094 if concept != "vector" else 0.075, 0.018,
-            materials["metal"], "metal", rotation=(0, math.pi / 2, 0),
+        mesh_from_source_region(
+            source, f"{display_name}_{suffix}_contoured_scye_bearing",
+            lambda c, side=side: (
+                side * c.x > 0.165 and side * c.x < 0.285 and
+                1.235 <= c.z < 1.395
+            ),
+            parent=shoulder_part, pivot=shoulder,
+            material=materials["secondaryShell"], role="secondaryShell",
+            expansion=expansion + 0.016, cutaway=True,
         )
         elbow_part = part(forearm, f"elbow-{suffix}", f"{display_name} {suffix} elbow", explode=(side * 0.045, 0, 0))
         mesh_from_source_region(
@@ -492,10 +781,12 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             parent=elbow_part, pivot=elbow, material=shell_material, role=shell_role,
             expansion=expansion, cutaway=concept != "vector",
         )
-        torus(
-            f"{display_name}_{suffix}_elbow_bearing", elbow_part,
-            (0, 0, 0), 0.073 if concept != "vector" else 0.058, 0.016,
-            materials["secondaryShell"], "secondaryShell", rotation=(0, math.pi / 2, 0),
+        mesh_from_source_region(
+            source, f"{display_name}_{suffix}_articulated_elbow_bellows",
+            lambda c, side=side: side * c.x > 0.265 and 0.985 <= c.z < 1.105,
+            parent=elbow_part, pivot=elbow,
+            material=materials["underlayer"], role="underlayer",
+            expansion=expansion + 0.011, cutaway=True,
         )
         glove_part = part(forearm, f"glove-{suffix}", f"{display_name} {suffix} glove", explode=(side * 0.055, -0.015, -0.02))
         mesh_from_source_region(
@@ -504,11 +795,22 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             parent=glove_part, pivot=elbow, material=materials["underlayer"], role="underlayer",
             expansion=0.014,
         )
+        mesh_from_source_region(
+            source, f"{display_name}_{suffix}_glove_metacarpal_guard",
+            lambda c, side=side: (
+                side * c.x > 0.34 and 0.60 < c.z < 0.755 and c.y < -0.018
+            ),
+            parent=glove_part, pivot=elbow,
+            material=materials["secondaryShell"], role="secondaryShell",
+            expansion=0.024, cutaway=True,
+        )
         wrist_part = part(forearm, f"wrist-ring-{suffix}", f"{display_name} {suffix} wrist interface", explode=(side * 0.04, 0, 0))
-        torus(
-            f"{display_name}_{suffix}_wrist_ring", wrist_part,
-            (side * 0.065, -0.004, -0.255), 0.052, 0.014,
-            materials["metal"], "metal", rotation=(0, math.pi / 2, 0),
+        mesh_from_source_region(
+            source, f"{display_name}_{suffix}_anatomical_wrist_interface",
+            lambda c, side=side: side * c.x > 0.31 and 0.72 <= c.z < 0.805,
+            parent=wrist_part, pivot=elbow,
+            material=materials["metal"], role="metal",
+            expansion=0.020, cutaway=True,
         )
 
     for side, leg, shin, hip, knee in (
@@ -530,11 +832,21 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             parent=knee_part, pivot=knee, material=shell_material, role=shell_role,
             expansion=expansion, cutaway=concept != "vector",
         )
-        torus(
-            f"{display_name}_{suffix}_knee_bearing", knee_part,
-            (0, -0.006, 0), 0.085 if concept != "vector" else 0.066, 0.018,
-            materials["secondaryShell"], "secondaryShell",
-            scale=(1, 1.15, 1),
+        mesh_from_source_region(
+            source, f"{display_name}_{suffix}_anatomical_knee_bellows",
+            lambda c, side=side: side * c.x > 0.025 and 0.405 <= c.z < 0.525,
+            parent=knee_part, pivot=knee,
+            material=materials["underlayer"], role="underlayer",
+            expansion=expansion + 0.010, cutaway=True,
+        )
+        mesh_from_source_region(
+            source, f"{display_name}_{suffix}_floating_knee_guard",
+            lambda c, side=side: (
+                side * c.x > 0.035 and 0.425 <= c.z < 0.515 and c.y < -0.012
+            ),
+            parent=knee_part, pivot=knee,
+            material=materials["secondaryShell"], role="secondaryShell",
+            expansion=expansion + 0.026, cutaway=True,
         )
         boot_part = part(shin, f"boot-{suffix}", f"{display_name} {suffix} terrain boot", explode=(side * 0.035, -0.04, -0.035))
         mesh_from_source_region(
@@ -543,18 +855,17 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             parent=boot_part, pivot=knee, material=materials["underlayer"], role="underlayer",
             expansion=0.025 if concept != "vector" else 0.012,
         )
-        rounded_box(
-            f"{display_name}_{suffix}_replaceable_tread", boot_part,
-            (side * 0.105 - knee.x, -0.04, 0.085 - knee.z),
-            (0.09, 0.16, 0.022), materials["secondaryShell"], "secondaryShell",
-            bevel=0.018,
-        )
+        # Keep the articulated human foot last visible instead of covering it
+        # with a primitive-looking toe block.  The shaped outsole below and the
+        # contoured gaiter provide replaceable protection without sacrificing
+        # the recognisable boot silhouette.
         gaiter_part = part(shin, f"dust-gaiter-{suffix}", f"{display_name} {suffix} dust gaiter", explode=(side * 0.04, 0, -0.025))
-        torus(
-            f"{display_name}_{suffix}_dust_gaiter", gaiter_part,
-            (0, 0, 0.12 - knee.z), 0.074, 0.02,
-            materials["dust"], "dust",
-            scale=(1, 1.16, 1),
+        mesh_from_source_region(
+            source, f"{display_name}_{suffix}_contoured_dust_gaiter",
+            lambda c, side=side: side * c.x > 0.018 and 0.115 <= c.z < 0.205,
+            parent=gaiter_part, pivot=knee,
+            material=materials["dust"], role="dust",
+            expansion=0.035 if concept != "vector" else 0.019, cutaway=True,
         )
 
     # A real human face from the CC0 base mesh remains visible behind the visor,
@@ -565,43 +876,49 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
         parent=body, pivot=Vector(), material=materials["skin"], role="skin",
     )
     head_skin["human_base"] = "Blender Studio Human Base Meshes v1.4.1 (CC0)"
-    hair = uv_sphere(
-        f"{display_name}_hair", body, (0, 0.008, 1.59), (0.105, 0.095, 0.115),
-        materials["hair"], "hair", segments=32, rings=18,
+    hair = mesh_from_source_region(
+        source, f"{display_name}_anatomical_hair_cap",
+        lambda c: c.z > 1.595 or (c.z > 1.505 and c.y > 0.025),
+        parent=body, pivot=Vector(), material=materials["hair"], role="hair",
+        expansion=0.004,
     )
-    delete_faces(hair, lambda c: c.z > -0.17 and c.y > -0.65)
+    hair["construction"] = "head-conforming cropped hair cap"
 
     if concept != "vector":
         helmet = empty(f"{display_name}_HELMET_ASSEMBLY", body, helmet_assembly=True)
         shell_part = part(helmet, "helmet-pressure-shell", f"{display_name} pressure helmet", explode=(0, 0.02, 0.12))
-        helmet_shell = uv_sphere(
-            f"{display_name}_helmet_pressure_shell", shell_part, (0, 0.006, 1.55),
-            (0.225, 0.238, 0.26), materials["shell"], "shell", cutaway=True,
-        )
-        # Cut a genuine face aperture into the pressure shell. Coordinates are
-        # already expressed in metres after the ellipsoid scale is applied.
-        # The former -0.24 threshold sat just outside the shell and therefore
-        # left a toy-like opaque sphere in front of the face.
-        delete_faces(
-            helmet_shell,
-            lambda c: not (c.y < -0.13 and -0.16 < c.z < 0.16 and abs(c.x) < 0.18),
+        helmet_dome(
+            f"{display_name}_faceted_pressure_shell", shell_part,
+            materials["shell"], "shell", cutaway=True,
         )
         visor_part = part(helmet, "helmet-visor", f"{display_name} protective visor", explode=(0, -0.08, 0.1))
-        visor = uv_sphere(
-            f"{display_name}_primary_visor", visor_part, (0, -0.012, 1.55),
-            (0.221, 0.247, 0.245), materials["visor"], "visor", cutaway=True,
+        curved_visor(
+            f"{display_name}_compound_curved_primary_visor", visor_part,
+            materials["visor"], "visor", z_min=1.415, z_max=1.690,
+            outward=0.016, cutaway=True,
         )
-        delete_faces(visor, lambda c: c.y < -0.08 and abs(c.x) < 0.9 and -0.72 < c.z < 0.72)
+        for label, points in (
+            ("upper", [(-0.128, -0.186, 1.685), (0, -0.204, 1.704), (0.128, -0.186, 1.685)]),
+            ("lower", [(-0.145, -0.184, 1.425), (0, -0.205, 1.405), (0.145, -0.184, 1.425)]),
+            ("left", [(-0.128, -0.186, 1.685), (-0.158, -0.190, 1.555), (-0.145, -0.184, 1.425)]),
+            ("right", [(0.128, -0.186, 1.685), (0.158, -0.190, 1.555), (0.145, -0.184, 1.425)]),
+        ):
+            curve_tube(
+                f"{display_name}_visor_{label}_seal", visor_part, points,
+                materials["metal"], "metal", radius=0.006,
+            )
         sun_part = part(helmet, "helmet-sun-visor", f"{display_name} sun visor", explode=(0, -0.1, 0.13))
-        sun = uv_sphere(
-            f"{display_name}_sun_visor", sun_part, (0, -0.026, 1.57),
-            (0.213, 0.252, 0.228), materials["sunVisor"], "sunVisor", segments=40, rings=22,
+        curved_visor(
+            f"{display_name}_retractable_sun_visor", sun_part,
+            materials["sunVisor"], "sunVisor", z_min=1.545, z_max=1.688,
+            outward=0.025,
         )
-        delete_faces(sun, lambda c: c.y < -0.12 and abs(c.x) < 0.86 and -0.1 < c.z < 0.72)
         neck_part = part(helmet, "helmet-neck-ring", f"{display_name} neck interface", explode=(0, 0, -0.05))
-        torus(
-            f"{display_name}_neck_bearing", neck_part, (0, 0, 1.355), 0.148, 0.026,
-            materials["metal"], "metal", scale=(1, 1.08, 1),
+        mesh_from_source_region(
+            source, f"{display_name}_body_contoured_neck_interface",
+            lambda c: 1.335 <= c.z < 1.415 and abs(c.x) < 0.19,
+            parent=neck_part, pivot=Vector(), material=materials["metal"], role="metal",
+            expansion=0.035, cutaway=True,
         )
         lights_part = part(helmet, "helmet-lights", f"{display_name} helmet lighting", explode=(0, -0.05, 0.08))
         for side in (-1, 1):
@@ -625,20 +942,46 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             )
 
         backpack = part(body, "backpack", f"{display_name} portable life support", explode=(0, 0.14, 0.02))
-        rounded_box(
-            f"{display_name}_life_support_backplate", backpack, (0, 0.18, 1.09),
-            (0.255, 0.105, 0.31), materials["secondaryShell"], "secondaryShell", bevel=0.055,
+        pack_shell = lofted_round_rect(
+            f"{display_name}_integrated_life_support_shell", backpack,
+            [
+                (0.795, 0.150, 0.050, -0.010),
+                (0.855, 0.205, 0.076, 0.000),
+                (1.070, 0.235, 0.095, 0.014),
+                (1.285, 0.215, 0.082, 0.006),
+                (1.370, 0.145, 0.052, -0.004),
+            ],
+            materials["secondaryShell"], "secondaryShell", y_center=0.185,
         )
+        pack_shell["integration"] = "load-spreading torso yoke; conceptual packaging"
         for side in (-1, 1):
-            cylinder(
-                f"{display_name}_{'left' if side < 0 else 'right'}_service_tank", backpack,
-                (side * 0.13, 0.295, 1.12), 0.055, 0.39,
-                materials["metal"], "metal", vertices=32,
+            canister = lofted_round_rect(
+                f"{display_name}_{'left' if side < 0 else 'right'}_faceted_service_canister",
+                backpack,
+                [
+                    (0.925, 0.047, 0.036, -0.006),
+                    (0.960, 0.057, 0.046, 0.000),
+                    (1.245, 0.057, 0.046, 0.000),
+                    (1.285, 0.046, 0.035, -0.006),
+                ],
+                materials["metal"], "metal", y_center=0.300,
+            )
+            canister.location.x = side * 0.132
+            curve_tube(
+                f"{display_name}_{'left' if side < 0 else 'right'}_load_yoke",
+                backpack,
+                [
+                    (side * 0.19, 0.105, 1.34),
+                    (side * 0.23, 0.145, 1.23),
+                    (side * 0.205, 0.175, 1.05),
+                    (side * 0.17, 0.160, 0.88),
+                ],
+                materials["underlayer"], "underlayer", radius=0.018,
             )
         for z in (0.88, 1.05, 1.24):
             rounded_box(
                 f"{display_name}_backpack_vent_{z}", backpack, (0, 0.294, z),
-                (0.115, 0.012, 0.018), materials["underlayer"], "underlayer", bevel=0.008,
+                (0.105, 0.009, 0.010), materials["underlayer"], "underlayer", bevel=0.006,
             )
         curve_tube(
             f"{display_name}_cooling_return_hose", backpack,
@@ -673,10 +1016,15 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
         panel["cutawaySurface"] = True
         if style == "adaptive":
             for band in range(4):
-                line = rounded_box(
+                half_width = 0.17 - band * 0.012
+                line = curve_tube(
                     f"{display_name}_adaptive_band_{band}", layer_group,
-                    (0, -0.205, 1.05 + band * 0.08), (0.18 - band * 0.012, 0.012, 0.009),
-                    materials["accent"], "accent", bevel=0.008,
+                    [
+                        (-half_width, -0.175 + band * 0.004, 1.05 + band * 0.08),
+                        (0, -0.192 + band * 0.003, 1.045 + band * 0.08),
+                        (half_width, -0.175 + band * 0.004, 1.05 + band * 0.08),
+                    ],
+                    materials["accent"], "accent", radius=0.0045,
                 )
                 line["torsoStyle"] = style
 
@@ -700,14 +1048,12 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             )
             panel["pantsStyle"] = style
 
-    for style, tread_depth in (("traverse", 0.17), ("rock", 0.19), ("stability", 0.205)):
+    for style, tread_depth in (("traverse", 0.185), ("rock", 0.198), ("stability", 0.212)):
         for side, shin in ((-1, shin_r), (1, shin_l)):
-            sole = rounded_box(
+            sole = boot_sole(
                 f"{display_name}_{style}_{'left' if side < 0 else 'right'}_sole",
-                shin, (0, -0.05, -0.405), (0.095, tread_depth, 0.018),
-                materials["underlayer"], "underlayer", bevel=0.016,
+                shin, materials["sole"], "underlayer", depth=tread_depth, style=style,
             )
-            sole["bootStyle"] = style
 
     # Mission accessories are separate named nodes, making both selection and
     # honest equipment-state reporting possible in Three.js.
@@ -780,18 +1126,28 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
 
     monitoring_id = "vector-monitoring" if concept == "vector" else "backpack"
     monitoring = part(body, monitoring_id, f"{display_name} biometric monitoring", explode=(0, -0.04, 0.01))
-    rounded_box(
-        f"{display_name}_biometric_patch", monitoring, (-0.115, -0.188, 1.225),
-        (0.045, 0.012, 0.062), materials["light"], "light", bevel=0.012,
+    uv_sphere(
+        f"{display_name}_flush_biometric_patch", monitoring,
+        (-0.115, -0.173, 1.225), (0.034, 0.009, 0.047),
+        materials["light"], "light", segments=32, rings=18,
     )
 
     # Strong concept-specific visual language beyond palette changes.
     if concept == "selene":
         for side in (-1, 1):
-            rounded_box(
-                f"MAX_{'left' if side < 0 else 'right'}_lunar_clavicle", layer_group,
-                (side * 0.13, -0.205, 1.32), (0.105, 0.018, 0.035),
-                materials["shell"], "shell", rotation=(0, 0, side * -0.17), bevel=0.02,
+            mesh_from_source_region(
+                source,
+                f"MAX_{'left' if side < 0 else 'right'}_body_contoured_lunar_clavicle",
+                lambda c, side=side: (
+                    side * c.x > 0.045 and side * c.x < 0.235 and
+                    1.275 <= c.z < 1.385 and c.y < -0.035
+                ),
+                parent=layer_group,
+                pivot=Vector(),
+                material=materials["shell"],
+                role="shell",
+                expansion=expansion + 0.032,
+                cutaway=True,
             )
             shin = shin_l if side > 0 else shin_r
             knee = knee_l if side > 0 else knee_r
@@ -808,23 +1164,25 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             )
     elif concept == "areo":
         for band in range(5):
-            rounded_box(
+            z = 1.02 + band * 0.062
+            curve_tube(
                 f"MALTE_geology_lamella_{band}", layer_group,
-                (-0.055 + band * 0.027, -0.213 - band * 0.001, 1.03 + band * 0.065),
-                (0.19 - band * 0.012, 0.014, 0.013),
+                [(-0.17 + band * 0.008, -0.182, z), (0.0, -0.201, z + 0.008), (0.16, -0.174, z + 0.022)],
                 materials["dust" if band % 2 else "secondaryShell"],
-                "dust" if band % 2 else "secondaryShell", bevel=0.009,
+                "dust" if band % 2 else "secondaryShell", radius=0.0048,
             )
-        rounded_box(
-            "MALTE_asymmetric_geology_pocket", layer_group, (0.145, -0.217, 1.05),
-            (0.075, 0.018, 0.09), materials["dust"], "dust", bevel=0.025,
+        mesh_from_source_region(
+            source, "MALTE_body_contoured_asymmetric_geology_pocket",
+            lambda c: 0.07 < c.x < 0.225 and 0.97 < c.z < 1.17 and c.y < -0.04,
+            parent=layer_group, pivot=Vector(), material=materials["dust"], role="dust",
+            expansion=expansion + 0.036, cutaway=True,
         )
     else:
         for side in (-1, 1):
             curve_tube(
                 f"BASTIAN_{'left' if side < 0 else 'right'}_kinetic_load_path", body,
                 [(side * 0.16, -0.152, 1.33), (side * 0.11, -0.175, 1.02), (side * 0.14, -0.145, 0.76)],
-                materials["accent"], "accent", radius=0.009, part_id="vector-monitoring",
+                materials["accent"], "accent", radius=0.0055, part_id="vector-monitoring",
             )
         sternum = mesh_from_source_region(
             source,

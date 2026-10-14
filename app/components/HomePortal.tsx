@@ -93,39 +93,63 @@ export function RievaWordmark({ compact = false }: { compact?: boolean }) {
   );
 }
 
+function OrbitalVehicle({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={`${styles.orbitVehicle} ${className}`.trim()}
+      viewBox="0 0 72 34"
+      focusable="false"
+      aria-hidden="true"
+    >
+      <path className={styles.vehiclePlumeOuter} d="M10 17 0 11v12Z" />
+      <path className={styles.vehiclePlumeInner} d="M11 17 3 14v6Z" />
+      <path className={styles.vehiclePanel} d="M27 3 49 1l3 8-23 3ZM27 31l22 2 3-8-23-3Z" />
+      <path className={styles.vehiclePanelGrid} d="M34 4v6m7-7v6m-7 15v6m7-5v6" />
+      <path className={styles.vehicleBody} d="M10 17 20 8h29l16 9-16 9H20Z" />
+      <path className={styles.vehicleNose} d="m49 8 18 9-18 9 7-9Z" />
+      <path className={styles.vehicleDetail} d="M20 11h27l8 6-8 6H20m2-12v12" />
+    </svg>
+  );
+}
+
 function OrbitArtwork() {
   return (
-    <span className={styles.visual} aria-hidden="true">
-      <span className={styles.orbitHalo} />
-      <span className={styles.orbitPlanet}>
-        <span className={styles.planetHighlight} />
+    <span className={`${styles.visual} ${styles.orbitVisual}`} aria-hidden="true">
+      <svg className={styles.orbitDiagram} viewBox="0 0 280 170" focusable="false">
+        <ellipse className={styles.orbitGuideSecondary} cx="140" cy="79" rx="67" ry="59" />
+        <ellipse className={styles.orbitGuidePrimary} cx="140" cy="83" rx="112" ry="43" />
+        <circle className={styles.planetAtmosphere} cx="140" cy="82" r="44" />
+        <circle className={styles.planetBody} cx="140" cy="82" r="38" />
+        <path className={styles.planetTerminator} d="M151 45c17 12 24 31 17 48-7 18-25 28-44 26 14-7 24-19 27-34 3-15 1-28 0-40Z" />
+        <path className={styles.planetGrid} d="M104 82h72M111 62c17 7 41 7 58 0m-58 40c17-7 41-7 58 0M140 44c-11 11-16 24-16 38s5 28 16 38m0-76c11 11 16 24 16 38s-5 28-16 38" />
+        <path className={styles.orbitTelemetry} d="M23 84h10m214 0h10M139 18v9m0 111v9" />
+      </svg>
+      <span className={styles.orbitVehicleTrack}>
+        <OrbitalVehicle />
       </span>
-      <span className={`${styles.orbitTrack} ${styles.orbitTrackOuter}`} />
-      <span className={`${styles.orbitTrack} ${styles.orbitTrackInner}`} />
-      <span className={styles.orbitRunner}>
-        <span className={styles.rocket}>
-          <span className={styles.rocketNose} />
-          <span className={styles.rocketBody} />
-          <span className={styles.rocketWingLeft} />
-          <span className={styles.rocketWingRight} />
-          <span className={styles.rocketFlame} />
-        </span>
-      </span>
+      <span className={styles.instrumentGlint} />
     </span>
   );
 }
 
 function BlackHoleArtwork() {
   return (
-    <span className={styles.visual} aria-hidden="true">
-      <span className={styles.blackHoleGlow} />
-      <span className={`${styles.accretionDisk} ${styles.accretionDiskBack}`} />
-      <span className={styles.blackHoleCore} />
-      <span className={`${styles.accretionDisk} ${styles.accretionDiskFront}`} />
-      <span className={styles.gravityArcOne} />
-      <span className={styles.gravityArcTwo} />
-      <span className={styles.probeOrbit}>
-        <span className={styles.probe} />
+    <span className={`${styles.visual} ${styles.blackVisual}`} aria-hidden="true">
+      <svg className={styles.blackDiagram} viewBox="0 0 280 170" focusable="false">
+        <ellipse className={styles.lensingFieldOuter} cx="140" cy="82" rx="113" ry="53" />
+        <ellipse className={styles.lensingFieldInner} cx="140" cy="82" rx="77" ry="68" />
+        <path className={styles.accretionBackLine} d="M35 87C73 37 210 37 246 77" />
+        <path className={styles.accretionCoolLine} d="M49 95C91 59 202 54 235 75" />
+        <circle className={styles.blackCoreHalo} cx="140" cy="82" r="39" />
+        <circle className={styles.blackCore} cx="140" cy="82" r="32" />
+        <path className={styles.accretionFrontLine} d="M246 77C207 126 72 127 35 87" />
+        <path className={styles.accretionHotLine} d="M234 75C190 111 80 113 49 95" />
+        <path className={styles.blackAxis} d="M140 22v17m0 86v18" />
+      </svg>
+      <span className={styles.blackProbeTrack}>
+        <span className={styles.blackProbe}>
+          <i />
+        </span>
       </span>
     </span>
   );
@@ -133,23 +157,23 @@ function BlackHoleArtwork() {
 
 function SuitArtwork() {
   return (
-    <span className={styles.visual} aria-hidden="true">
-      <span className={styles.suitAura} />
-      <span className={styles.suitFigure}>
-        <span className={`${styles.suitPart} ${styles.suitPack}`} />
-        <span className={`${styles.suitPart} ${styles.suitHelmet}`}>
-          <span className={styles.suitVisor} />
-        </span>
-        <span className={`${styles.suitPart} ${styles.suitTorso}`}>
-          <span className={styles.suitChestPanel} />
-        </span>
-        <span className={`${styles.suitPart} ${styles.suitArmLeft}`} />
-        <span className={`${styles.suitPart} ${styles.suitArmRight}`} />
-        <span className={`${styles.suitPart} ${styles.suitLegLeft}`} />
-        <span className={`${styles.suitPart} ${styles.suitLegRight}`} />
-        <span className={styles.suitScan} />
-      </span>
-      <span className={styles.assemblyRing} />
+    <span className={`${styles.visual} ${styles.suitVisual}`} aria-hidden="true">
+      <svg className={styles.suitDiagram} viewBox="0 0 200 180" focusable="false">
+        <ellipse className={styles.suitDatumRing} cx="100" cy="91" rx="77" ry="55" />
+        <path className={`${styles.suitAssemblyPiece} ${styles.suitPack}`} d="M70 50 82 40h39l12 11 5 70-22 13H81l-20-14Z" />
+        <path className={`${styles.suitAssemblyPiece} ${styles.suitHelmet}`} d="M72 34C73 12 86 4 101 4c17 0 30 9 31 30l-10 17H82Z" />
+        <path className={styles.suitVisor} d="M79 30c2-13 10-19 22-19 13 0 22 7 24 20l-8 11H87Z" />
+        <path className={`${styles.suitAssemblyPiece} ${styles.suitTorso}`} d="M74 49 88 43h27l14 8 10 52-18 25H80l-18-25Z" />
+        <path className={styles.suitChestPanel} d="m84 58 17-6 18 6-3 28-15 8-16-8Z" />
+        <path className={`${styles.suitAssemblyPiece} ${styles.suitArmLeft}`} d="m69 54-14 6-14 35 4 30 13 2 5-27 14-30Z" />
+        <path className={`${styles.suitAssemblyPiece} ${styles.suitArmRight}`} d="m132 54 14 6 14 35-4 30-13 2-5-27-14-30Z" />
+        <path className={`${styles.suitAssemblyPiece} ${styles.suitLegLeft}`} d="m80 121-2 34-8 17 7 5 19-2 5-20-2-34Z" />
+        <path className={`${styles.suitAssemblyPiece} ${styles.suitLegRight}`} d="m121 121 2 34 8 17-7 5-19-2-5-20 2-34Z" />
+        <path className={styles.suitJointLine} d="M52 94h13m70 0h13M82 127l17 3m20-3-17 3M83 72h36M101 94v28" />
+        <path className={styles.suitSeamLine} d="M88 45 82 72l5 39m27-66 6 27-5 39M49 91l12 5m90-5-12 5" />
+      </svg>
+      <span className={styles.suitScan} />
+      <span className={styles.suitIndex}>03</span>
     </span>
   );
 }
@@ -158,24 +182,26 @@ function ContactArtwork() {
   return (
     <span className={`${styles.visual} ${styles.contactVisual}`} aria-hidden="true">
       <svg className={styles.contactFlow} viewBox="0 0 260 150" focusable="false">
-        <path d="M8 34 C72 8 178 13 250 40" />
-        <path d="M3 58 C78 38 180 42 256 61" />
-        <path d="M3 88 C70 108 180 107 256 84" />
-        <path d="M8 113 C80 142 183 137 250 109" />
+        <path d="M5 28C61 8 170 9 255 38" />
+        <path d="M2 53c69-19 168-14 256 5" />
+        <path d="M2 93c71 18 169 17 256-5" />
+        <path d="M5 120c58 20 170 17 250-14" />
       </svg>
       <svg className={styles.contactAircraft} viewBox="0 0 260 150" focusable="false">
         <path
           className={styles.contactAircraftShadow}
-          d="M15 83 94 68 120 22 142 24 151 60 223 45 250 56 191 78 236 103 222 112 151 91 137 134 116 132 94 91 20 94Z"
+          d="m9 81 80-17 28-42 26 2 14 31 64-15 31 10-48 26 39 33-17 9-72-26-14 39-25-1-28-37-75 1Z"
         />
         <path
           className={styles.contactAircraftBody}
-          d="M16 75 96 64 121 27 140 29 149 58 220 48 246 57 187 75 230 98 218 105 149 87 136 125 118 124 96 87 21 87Z"
+          d="m10 74 80-15 29-38 22 2 15 31 64-13 29 10-49 23 38 29-14 8-72-24-14 38-20-1-29-36-74-1Z"
         />
-        <path className={styles.contactAircraftCanopy} d="m119 62 9-25 8 2 7 23-9 8Z" />
-        <path className={styles.contactAircraftCore} d="m96 64 53-6 38 17-38 12-53-23Z" />
-        <path className={styles.contactAircraftAccent} d="m30 78 68-10 50 8-52 6Z" />
-        <path className={styles.contactAircraftNozzle} d="m218 54 28 3-18 7Z" />
+        <path className={styles.contactAircraftCore} d="m89 59 67-5 44 20-48 13-63-28Z" />
+        <path className={styles.contactAircraftCanopy} d="m118 56 10-26 8 1 13 28-15 10Z" />
+        <path className={styles.contactAircraftIntake} d="m103 61 22 7-14 8-19-15m61-7-17 14 17 8 29-12" />
+        <path className={styles.contactAircraftAccent} d="m26 76 65-12 61 17-63 2m69-24 59-13m-65 41 69 18" />
+        <path className={styles.contactAircraftPanel} d="m67 64 23 23m89-38-27 38M119 21l19 104" />
+        <path className={styles.contactAircraftNozzle} d="m222 44 27 7-20 8m-3 39 12 5-14 8" />
       </svg>
       <span className={styles.contactScan} />
       <span className={styles.contactSignal}>
@@ -318,13 +344,7 @@ export function HomePortal({ onNavigate }: HomePortalProps) {
             <>
               <span className={styles.transitionOrbitGuide} />
               <span className={styles.transitionRocket}>
-                <span className={styles.rocket}>
-                  <span className={styles.rocketNose} />
-                  <span className={styles.rocketBody} />
-                  <span className={styles.rocketWingLeft} />
-                  <span className={styles.rocketWingRight} />
-                  <span className={styles.rocketFlame} />
-                </span>
+                <OrbitalVehicle className={styles.transitionVehicle} />
               </span>
             </>
           ) : null}

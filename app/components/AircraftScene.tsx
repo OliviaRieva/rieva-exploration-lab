@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUniformsLib.js";
 import type {
   ContactFlightConfiguration,
   ContactFlightResult,
@@ -88,6 +90,17 @@ function cloneMaterials(root: THREE.Object3D) {
     object.material = Array.isArray(object.material)
       ? object.material.map((material) => material.clone())
       : object.material.clone();
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    materials.forEach((material) => {
+      material.dithering = true;
+      material.userData.rievaBaseOpacity = material.opacity;
+      material.userData.rievaBaseTransparent = material.transparent;
+      material.userData.rievaBaseDepthWrite = material.depthWrite;
+      if (!(material instanceof THREE.MeshStandardMaterial)) return;
+      material.envMapIntensity = 1.35;
+      material.userData.rievaBaseEmissive = material.emissive.clone();
+      material.userData.rievaBaseEmissiveIntensity = material.emissiveIntensity;
+    });
     object.castShadow = true;
     object.receiveShadow = true;
   });
@@ -240,9 +253,17 @@ function setObjectOpacity(object: THREE.Object3D, opacity: number) {
     if (!(child instanceof THREE.Mesh)) return;
     const materials = Array.isArray(child.material) ? child.material : [child.material];
     materials.forEach((material) => {
-      material.transparent = opacity < 0.999;
-      material.opacity = opacity;
-      material.depthWrite = opacity > 0.55;
+      const baseOpacity = Number(material.userData.rievaBaseOpacity ?? material.opacity);
+      const baseTransparent = Boolean(
+        material.userData.rievaBaseTransparent ?? material.transparent,
+      );
+      const baseDepthWrite = Boolean(
+        material.userData.rievaBaseDepthWrite ?? material.depthWrite,
+      );
+      material.transparent = baseTransparent || opacity < 0.999;
+      material.opacity = baseOpacity * opacity;
+      material.depthWrite = opacity > 0.55 ? baseDepthWrite : false;
+      material.needsUpdate = true;
     });
   });
 }
@@ -252,17 +273,31 @@ function makeTunnel() {
   const geometry = new THREE.BoxGeometry(15, 6.8, 19);
   const edges = new THREE.LineSegments(
     new THREE.EdgesGeometry(geometry),
-    new THREE.LineBasicMaterial({ color: 0x8394d9, transparent: true, opacity: 0.16 }),
+    new THREE.LineBasicMaterial({ color: 0x8394d9, transparent: true, opacity: 0.075 }),
   );
   group.add(edges);
 
-  const floor = new THREE.GridHelper(18, 18, 0x8671dc, 0x8fa4cf);
-  floor.rotation.x = 0;
-  floor.position.y = -3.4;
+  const studioFloor = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 34),
+    new THREE.MeshPhysicalMaterial({
+      color: 0xe8eaf3,
+      roughness: 0.72,
+      metalness: 0.04,
+      clearcoat: 0.16,
+      clearcoatRoughness: 0.64,
+    }),
+  );
+  studioFloor.rotation.x = -Math.PI / 2;
+  studioFloor.position.y = -3.38;
+  studioFloor.receiveShadow = true;
+  group.add(studioFloor);
+
+  const floor = new THREE.GridHelper(24, 24, 0x8671dc, 0x8fa4cf);
+  floor.position.y = -3.36;
   const floorMaterials = Array.isArray(floor.material) ? floor.material : [floor.material];
   floorMaterials.forEach((material) => {
     material.transparent = true;
-    material.opacity = 0.11;
+    material.opacity = 0.055;
   });
   group.add(floor);
   return group;
@@ -359,30 +394,130 @@ function makePressureOverlay() {
   return group;
 }
 
+function makePressureSurfaceMaterial() {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      lowColor: { value: new THREE.Color(0x51d5ee) },
+      highColor: { value: new THREE.Color(0xed7bc6) },
+      opacity: { value: 0.23 },
+    },
+    vertexShader: `
+      varying vec3 vNormal;
+      varying vec3 vViewPosition;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
+        vViewPosition = -viewPosition.xyz;
+        gl_Position = projectionMatrix * viewPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 lowColor;
+      uniform vec3 highColor;
+      uniform float opacity;
+      varying vec3 vNormal;
+      varying vec3 vViewPosition;
+      void main() {
+        float side = smoothstep(-0.42, 0.42, vNormal.y);
+        float fresnel = pow(1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition))), 2.2);
+        vec3 color = mix(lowColor, highColor, side);
+        gl_FragColor = vec4(color, opacity * (0.42 + fresnel * 0.85));
+      }
+    `,
+  });
+}
+
 function makeShockCue() {
   const group = new THREE.Group();
-  const material = new THREE.LineBasicMaterial({
+  const shellMaterial = new THREE.MeshBasicMaterial({
     color: 0xeb8bcd,
     transparent: true,
-    opacity: 0.72,
+    opacity: 0.075,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(5.4, 9.5, 64, 1, true), shellMaterial);
+  // ConeGeometry's apex is +Y. Rotate it toward the -Z nose so the cue widens
+  // downstream over the aircraft rather than converging toward the tail.
+  cone.rotation.x = -Math.PI / 2;
+  cone.position.z = -1.25;
+  group.add(cone);
+
+  const ringMaterial = new THREE.MeshBasicMaterial({
+    color: 0x9a73ed,
+    transparent: true,
+    opacity: 0.24,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
   });
   for (let ring = 0; ring < 4; ring += 1) {
-    const z = -5.6 + ring * 2.7;
-    const size = 0.7 + ring * 1.25;
-    const points = [
-      new THREE.Vector3(0, 0, z),
-      new THREE.Vector3(size, size * 0.34, z + 3.6),
-      new THREE.Vector3(0, 0, z),
-      new THREE.Vector3(-size, size * 0.34, z + 3.6),
-      new THREE.Vector3(0, 0, z),
-      new THREE.Vector3(size, -size * 0.34, z + 3.6),
-      new THREE.Vector3(0, 0, z),
-      new THREE.Vector3(-size, -size * 0.34, z + 3.6),
-    ];
-    const line = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points), material.clone());
-    group.add(line);
+    const radius = 0.75 + ring * 1.05;
+    const band = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.015, 6, 72), ringMaterial.clone());
+    band.position.z = -3.8 + ring * 2.05;
+    group.add(band);
   }
   return group;
+}
+
+function makeEnginePlumes() {
+  const group = new THREE.Group();
+  for (const side of [-1, 1] as const) {
+    const plumeMaterial = new THREE.MeshBasicMaterial({
+      color: 0xa9eaff,
+      transparent: true,
+      opacity: 0.13,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const plume = new THREE.Mesh(new THREE.ConeGeometry(0.4, 3.4, 40, 1, true), plumeMaterial);
+    plume.name = "Illustrative exhaust heat plume";
+    plume.rotation.x = -Math.PI / 2;
+    plume.position.set(side * 0.62, -0.3, 7.55);
+    plume.userData.baseOpacity = plumeMaterial.opacity;
+    plume.userData.anchorName = side < 0 ? "ANCHOR_EXHAUST_L" : "ANCHOR_EXHAUST_R";
+    plume.userData.plumeLength = 3.4;
+    group.add(plume);
+
+    const hotCoreMaterial = new THREE.MeshBasicMaterial({
+      color: 0xf5fbff,
+      transparent: true,
+      opacity: 0.23,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const hotCore = new THREE.Mesh(new THREE.ConeGeometry(0.18, 1.85, 32, 1, true), hotCoreMaterial);
+    hotCore.name = "Illustrative exhaust core";
+    hotCore.rotation.x = -Math.PI / 2;
+    hotCore.position.set(side * 0.62, -0.3, 6.78);
+    hotCore.userData.baseOpacity = hotCoreMaterial.opacity;
+    hotCore.userData.anchorName = side < 0 ? "ANCHOR_EXHAUST_L" : "ANCHOR_EXHAUST_R";
+    hotCore.userData.plumeLength = 1.85;
+    group.add(hotCore);
+  }
+  return group;
+}
+
+function alignExhaustToAsset(
+  model: THREE.Object3D,
+  exhaust: THREE.Group,
+) {
+  model.updateWorldMatrix(true, true);
+  for (const child of exhaust.children) {
+    const anchorName = child.userData.anchorName as string | undefined;
+    const anchor = anchorName ? model.getObjectByName(anchorName) : null;
+    if (!anchor) continue;
+    const anchorPosition = anchor.getWorldPosition(new THREE.Vector3());
+    const length = Number(child.userData.plumeLength ?? 0);
+    child.position.copy(anchorPosition).add(new THREE.Vector3(0, 0, length / 2));
+  }
 }
 
 function cameraPosition(preset: AircraftCameraPreset) {
@@ -430,7 +565,10 @@ export function AircraftScene({
     basePositions: Map<THREE.Object3D, THREE.Vector3>;
     streams: THREE.Line[];
     pressure: THREE.Group;
+    pressureSurfaces: THREE.Mesh[];
     shock: THREE.Group;
+    exhaust: THREE.Group;
+    selectionHalo: THREE.Box3Helper;
     renderer: THREE.WebGLRenderer;
   } | null>(null);
   const [status, setStatus] = useState<SceneStatus>("loading");
@@ -442,8 +580,8 @@ export function AircraftScene({
     let disposed = false;
     let frame = 0;
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0xeef0fc, 0.017);
-    const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 120);
+    scene.fog = new THREE.FogExp2(0xeef0fc, 0.012);
+    const camera = new THREE.PerspectiveCamera(31, 1, 0.1, 120);
     camera.position.copy(cameraPosition("perspective"));
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -453,6 +591,13 @@ export function AircraftScene({
     renderer.toneMappingExposure = 1.12;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    RectAreaLightUniformsLib.init();
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const room = new RoomEnvironment();
+    const environmentTarget = pmrem.fromScene(room, 0.045);
+    scene.environment = environmentTarget.texture;
+    pmrem.dispose();
+    room.dispose();
     host.replaceChildren(renderer.domElement);
     renderer.domElement.setAttribute("aria-label", "Interactive 3D AERIS-X research aircraft");
     renderer.domElement.tabIndex = 0;
@@ -465,17 +610,27 @@ export function AircraftScene({
     controls.maxDistance = 28;
     controls.target.set(0, 0, 0);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x6570a8, 2.1));
-    const key = new THREE.DirectionalLight(0xffffff, 4.6);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x6570a8, 1.35));
+    const key = new THREE.DirectionalLight(0xffffff, 4.2);
     key.position.set(-7, 10, -8);
     key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.bias = -0.00012;
     scene.add(key);
-    const rim = new THREE.DirectionalLight(0x9f79ff, 5.4);
+    const rim = new THREE.DirectionalLight(0x9f79ff, 3.8);
     rim.position.set(8, 1, 9);
     scene.add(rim);
-    const cyan = new THREE.PointLight(0x5ed7f1, 12, 30, 2);
+    const cyan = new THREE.PointLight(0x5ed7f1, 8, 30, 2);
     cyan.position.set(-5, -1, -5);
     scene.add(cyan);
+    const softbox = new THREE.RectAreaLight(0xffffff, 7.5, 8, 5);
+    softbox.position.set(4.8, 7.5, -2.5);
+    softbox.lookAt(0, 0, 0);
+    scene.add(softbox);
+    const edgebox = new THREE.RectAreaLight(0xbca8ff, 5, 5, 7);
+    edgebox.position.set(-6.5, 2.2, 7.5);
+    edgebox.lookAt(0, 0, 0);
+    scene.add(edgebox);
 
     const tunnel = makeTunnel();
     scene.add(tunnel);
@@ -485,6 +640,22 @@ export function AircraftScene({
     scene.add(pressure);
     const shock = makeShockCue();
     scene.add(shock);
+    const exhaust = makeEnginePlumes();
+    scene.add(exhaust);
+    const selectionHalo = new THREE.Box3Helper(
+      new THREE.Box3(),
+      new THREE.Color(0x8c73ed),
+    );
+    selectionHalo.visible = false;
+    const selectionMaterials = Array.isArray(selectionHalo.material)
+      ? selectionHalo.material
+      : [selectionHalo.material];
+    selectionMaterials.forEach((material) => {
+      material.transparent = true;
+      material.opacity = 0.48;
+      material.depthTest = false;
+    });
+    scene.add(selectionHalo);
 
     const aircraftContainer = new THREE.Group();
     aircraftContainer.rotation.x = -0.035;
@@ -493,6 +664,7 @@ export function AircraftScene({
     const moduleObjects = new Map<string, THREE.Object3D[]>();
     const exteriorObjects: THREE.Object3D[] = [];
     const engineObjects: THREE.Object3D[] = [];
+    const pressureSurfaces: THREE.Mesh[] = [];
     const basePositions = new Map<THREE.Object3D, THREE.Vector3>();
 
     const registerModel = (model: THREE.Object3D, fallback: boolean) => {
@@ -504,6 +676,7 @@ export function AircraftScene({
       model.scale.setScalar(scale);
       model.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
       aircraftContainer.add(model);
+      alignExhaustToAsset(model, exhaust);
       model.traverse((object) => {
         const partId = readablePartId(object);
         const moduleId = object.userData.module_id as string | undefined;
@@ -525,6 +698,21 @@ export function AircraftScene({
           if (partId === "compressor" || partId === "nozzles") engineObjects.push(object);
         }
       });
+      if (!fallback) {
+        const wingMeshes = interactive
+          .filter((item) => item.partId === "wing" && item.object instanceof THREE.Mesh)
+          .map((item) => item.object as THREE.Mesh);
+        wingMeshes.forEach((wingMesh) => {
+          const overlay = new THREE.Mesh(wingMesh.geometry.clone(), makePressureSurfaceMaterial());
+          overlay.name = "Computed-pressure visualization skin";
+          overlay.scale.setScalar(1.004);
+          overlay.renderOrder = 4;
+          overlay.visible = false;
+          overlay.raycast = () => undefined;
+          wingMesh.add(overlay);
+          pressureSurfaces.push(overlay);
+        });
+      }
       sceneStateRef.current = {
         camera,
         controls,
@@ -536,7 +724,10 @@ export function AircraftScene({
         basePositions,
         streams,
         pressure,
+        pressureSurfaces,
         shock,
+        exhaust,
+        selectionHalo,
         renderer,
       };
       setStatus(fallback ? "fallback" : "ready");
@@ -603,6 +794,9 @@ export function AircraftScene({
     resize();
 
     const clock = new THREE.Clock();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const neutralEmissive = new THREE.Color(0x000000);
+    const highlightedEmissive = new THREE.Color(0x7056d8);
     const render = () => {
       if (disposed) return;
       const elapsed = clock.getElapsedTime();
@@ -610,23 +804,44 @@ export function AircraftScene({
       updateStreamlines(
         streams,
         elapsed,
-        live.airflowRunning,
+        live.airflowRunning && !reducedMotion,
         live.configuration.speedMps,
         live.configuration.angleOfAttackDeg,
       );
+      const selectedBounds = new THREE.Box3();
+      let hasSelectedBounds = false;
       interactive.forEach(({ object, partId }) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => {
-          if (!(material instanceof THREE.MeshStandardMaterial)) return;
-          material.emissive.set(partId === live.selectedPartId ? 0x6b55d8 : 0x000000);
-          material.emissiveIntensity = partId === live.selectedPartId
-            ? 0.28 + Math.sin(elapsed * 4) * 0.08
-            : 0;
+        if (partId === live.selectedPartId && object.visible) {
+          selectedBounds.expandByObject(object, true);
+          hasSelectedBounds = true;
+        }
+        object.traverse((child) => {
+          if (!(child instanceof THREE.Mesh)) return;
+          const materials = Array.isArray(child.material) ? child.material : [child.material];
+          materials.forEach((material) => {
+            if (!(material instanceof THREE.MeshStandardMaterial)) return;
+            const baseColor = material.userData.rievaBaseEmissive as THREE.Color | undefined;
+            const baseIntensity = Number(material.userData.rievaBaseEmissiveIntensity ?? 0);
+            material.emissive.copy(baseColor ?? neutralEmissive);
+            material.emissiveIntensity = partId === live.selectedPartId
+              ? Math.max(baseIntensity, reducedMotion ? 0.16 : 0.18 + Math.sin(elapsed * 3.2) * 0.035)
+              : baseIntensity;
+            if (partId === live.selectedPartId) material.emissive.lerp(highlightedEmissive, 0.38);
+          });
         });
       });
+      selectionHalo.visible = hasSelectedBounds;
+      if (hasSelectedBounds) selectionHalo.box.copy(selectedBounds).expandByScalar(0.055);
       engineObjects.forEach((object, index) => {
-        if (/CORE/i.test(object.name)) object.rotation.z += 0.006 + index * 0.0003;
+        if (/CORE/i.test(object.name) && !reducedMotion) object.rotation.z += 0.004 + index * 0.0002;
+      });
+      exhaust.visible = live.airflowRunning;
+      exhaust.children.forEach((child, index) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        const material = child.material as THREE.MeshBasicMaterial;
+        const pulse = reducedMotion ? 1 : 0.92 + Math.sin(elapsed * 7.2 + index * 0.8) * 0.08;
+        material.opacity = Number(child.userData.baseOpacity ?? 0.12) * pulse;
+        child.scale.y = pulse;
       });
       controls.update();
       renderer.render(scene, camera);
@@ -648,6 +863,7 @@ export function AircraftScene({
         materials.forEach((material) => material.dispose());
       });
       renderer.dispose();
+      environmentTarget.dispose();
       sceneStateRef.current = null;
       host.replaceChildren();
     };
@@ -662,8 +878,15 @@ export function AircraftScene({
       else if (configuration.flowMode === "shock-cues") material.opacity = 0.22;
       else material.opacity = 0.46;
     });
-    state.pressure.visible = configuration.flowMode === "pressure";
+    state.pressure.visible = configuration.flowMode === "pressure" && state.pressureSurfaces.length === 0;
+    state.pressureSurfaces.forEach((surface) => {
+      surface.visible = configuration.flowMode === "pressure";
+    });
     state.shock.visible = configuration.flowMode === "shock-cues" && result.mach > 1;
+    if (state.shock.visible) {
+      const coneScale = THREE.MathUtils.clamp(1 / Math.sqrt(result.mach * result.mach - 1), 0.24, 1.4);
+      state.shock.scale.set(coneScale, coneScale, 1);
+    }
 
     for (const [configId, assetId] of Object.entries(MODULE_ASSET_IDS) as Array<
       [ContactModuleId, string | null]

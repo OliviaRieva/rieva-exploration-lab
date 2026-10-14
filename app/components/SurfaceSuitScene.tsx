@@ -9,6 +9,8 @@ import {
 } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUniformsLib.js";
 
 export type SurfaceSuitBodyPreset = "compact" | "standard" | "tall";
 export type SurfaceSuitPantsStyle = "contour" | "field" | "mobility";
@@ -2581,7 +2583,7 @@ function makeStarField() {
     color: "#8d78c8",
     size: 0.018,
     transparent: true,
-    opacity: 0.2,
+    opacity: 0.09,
     sizeAttenuation: true,
   });
   const points = new THREE.Points(geometry, material);
@@ -2673,6 +2675,36 @@ function installAuthoredSuits(rig: SuitRig, loadedScene: THREE.Group) {
     } else {
       object.material = object.material.clone();
     }
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    const materialRole = object.userData.materialRole as MaterialRole | undefined;
+    materials.forEach((material) => {
+      material.dithering = true;
+      if (!(material instanceof THREE.MeshStandardMaterial)) return;
+      material.envMapIntensity = materialRole === "metal" || materialRole === "visor" ? 1.65 : 1.22;
+      if (materialRole === "shell" || materialRole === "secondaryShell") {
+        material.roughness = Math.min(material.roughness, 0.42);
+        material.metalness = Math.min(material.metalness, 0.12);
+      } else if (materialRole === "underlayer" || materialRole === "seam") {
+        material.roughness = Math.max(material.roughness, 0.68);
+        material.metalness = 0;
+      } else if (materialRole === "metal" || materialRole === "assist") {
+        material.roughness = Math.min(material.roughness, 0.3);
+        material.metalness = Math.max(material.metalness, 0.58);
+      }
+      if (material instanceof THREE.MeshPhysicalMaterial) {
+        if (materialRole === "shell" || materialRole === "secondaryShell") {
+          material.clearcoat = Math.max(material.clearcoat, 0.18);
+          material.clearcoatRoughness = 0.46;
+          material.sheen = Math.max(material.sheen, 0.08);
+        }
+        if (materialRole === "visor" || materialRole === "sunVisor") {
+          material.clearcoat = 1;
+          material.clearcoatRoughness = 0.055;
+          material.iridescence = materialRole === "sunVisor" ? 0.2 : 0.08;
+          material.iridescenceIOR = 1.3;
+        }
+      }
+    });
   });
 
   for (const conceptId of ["selene", "areo", "vector"] as const) {
@@ -2964,6 +2996,7 @@ export function SurfaceSuitScene({
     renderer.toneMappingExposure = 1.08;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    RectAreaLightUniformsLib.init();
     renderer.domElement.className = "surface-suit-scene__canvas";
     renderer.domElement.setAttribute("role", "img");
     renderer.domElement.setAttribute(
@@ -2980,19 +3013,27 @@ export function SurfaceSuitScene({
     const scene = new THREE.Scene();
     sceneRef.current = scene;
     scene.background = new THREE.Color("#edf0f8");
-    scene.fog = new THREE.Fog("#edf0f8", 8.4, 15);
-    const camera = new THREE.PerspectiveCamera(34, 1, 0.05, 40);
+    scene.fog = new THREE.Fog("#edf0f8", 10.2, 19);
+    const camera = new THREE.PerspectiveCamera(31, 1, 0.05, 40);
     cameraRef.current = camera;
     updateCamera(camera, cameraOrbitRef.current);
 
-    const hemisphere = new THREE.HemisphereLight("#ffffff", "#a9a0ca", 1.9);
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const room = new RoomEnvironment();
+    const environmentTarget = pmrem.fromScene(room, 0.045);
+    scene.environment = environmentTarget.texture;
+    pmrem.dispose();
+    room.dispose();
+
+    const hemisphere = new THREE.HemisphereLight("#ffffff", "#a9a0ca", 1.25);
     hemisphere.name = "Soft environment light";
     scene.add(hemisphere);
-    const keyLight = new THREE.DirectionalLight("#ffffff", 3.55);
+    const keyLight = new THREE.DirectionalLight("#ffffff", 3.2);
     keyLight.name = "Front key light";
     keyLight.position.set(3.6, 5.5, 5.2);
     keyLight.castShadow = true;
-    keyLight.shadow.mapSize.set(1024, 1024);
+    keyLight.shadow.mapSize.set(2048, 2048);
+    keyLight.shadow.bias = -0.00012;
     keyLight.shadow.camera.near = 1;
     keyLight.shadow.camera.far = 14;
     keyLight.shadow.camera.left = -4;
@@ -3000,10 +3041,25 @@ export function SurfaceSuitScene({
     keyLight.shadow.camera.top = 5;
     keyLight.shadow.camera.bottom = -5;
     scene.add(keyLight);
-    const rimLight = new THREE.DirectionalLight("#b17cff", 1.35);
+    const rimLight = new THREE.DirectionalLight("#b17cff", 1.8);
     rimLight.name = "Purple rear rim light";
     rimLight.position.set(-4, 2.5, -5);
     scene.add(rimLight);
+    const frontSoftbox = new THREE.RectAreaLight("#ffffff", 5.2, 4.5, 6.5);
+    frontSoftbox.name = "Large photographic front softbox";
+    frontSoftbox.position.set(3.8, 4.4, 5.4);
+    frontSoftbox.lookAt(0, 0, 0);
+    scene.add(frontSoftbox);
+    const sideSoftbox = new THREE.RectAreaLight("#c7b8ff", 3.6, 3.4, 5.5);
+    sideSoftbox.name = "Cool edge softbox";
+    sideSoftbox.position.set(-4.8, 2.2, 1.2);
+    sideSoftbox.lookAt(0, 0.2, 0);
+    scene.add(sideSoftbox);
+    const fillSoftbox = new THREE.RectAreaLight("#bdefff", 2.4, 4, 3);
+    fillSoftbox.name = "Lower cyan fill";
+    fillSoftbox.position.set(2.4, -0.8, -3.8);
+    fillSoftbox.lookAt(0, -0.4, 0);
+    scene.add(fillSoftbox);
 
     const starField = makeStarField();
     scene.add(starField);
@@ -3015,9 +3071,24 @@ export function SurfaceSuitScene({
       : [grid.material];
     for (const material of gridMaterials) {
       material.transparent = true;
-      material.opacity = 0.34;
+      material.opacity = 0.14;
     }
     scene.add(grid);
+    const studioFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(24, 24),
+      new THREE.MeshPhysicalMaterial({
+        color: "#e7e9f2",
+        roughness: 0.76,
+        metalness: 0.02,
+        clearcoat: 0.12,
+        clearcoatRoughness: 0.72,
+      }),
+    );
+    studioFloor.name = "Photographic studio floor";
+    studioFloor.rotation.x = -Math.PI / 2;
+    studioFloor.position.y = -2.3;
+    studioFloor.receiveShadow = true;
+    scene.add(studioFloor);
     const platform = addCylinder(
       scene,
       "Rounded inspection platform",
@@ -3212,9 +3283,10 @@ export function SurfaceSuitScene({
     resize();
 
     const clock = new THREE.Clock();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const renderFrame = () => {
       const elapsed = clock.getElapsedTime();
-      const activeMotion = motionModeRef.current;
+      const activeMotion = reducedMotion ? "neutral" : motionModeRef.current;
       const locomotion = activeMotion === "walk" || activeMotion === "run";
       const frequency = activeMotion === "run" ? 6.2 : 3.1;
       const stride = activeMotion === "run" ? 0.7 : activeMotion === "walk" ? 0.42 : 0;
@@ -3292,6 +3364,16 @@ export function SurfaceSuitScene({
         activeMotion === "run" ? 0.11 : 0,
         0.12,
       );
+      rig.body.rotation.z = THREE.MathUtils.lerp(
+        rig.body.rotation.z,
+        locomotion ? Math.sin(elapsed * frequency * 0.5) * (activeMotion === "run" ? 0.038 : 0.024) : 0,
+        0.1,
+      );
+      rig.body.rotation.y = THREE.MathUtils.lerp(
+        rig.body.rotation.y,
+        locomotion ? -Math.sin(elapsed * frequency) * 0.025 : 0,
+        0.1,
+      );
 
       const authored = rig.authoredRigs.get(conceptIdRef.current);
       if (authored) {
@@ -3355,6 +3437,16 @@ export function SurfaceSuitScene({
           authored.body.rotation.x,
           activeMotion === "run" ? 0.095 : 0,
           0.12,
+        );
+        authored.body.rotation.z = THREE.MathUtils.lerp(
+          authored.body.rotation.z,
+          locomotion ? Math.sin(elapsed * frequency * 0.5) * (activeMotion === "run" ? 0.034 : 0.021) : 0,
+          0.1,
+        );
+        authored.body.rotation.y = THREE.MathUtils.lerp(
+          authored.body.rotation.y,
+          locomotion ? -Math.sin(elapsed * frequency) * 0.022 : 0,
+          0.1,
         );
       }
 
@@ -3441,6 +3533,7 @@ export function SurfaceSuitScene({
       renderer.domElement.removeEventListener("wheel", handleWheel);
       renderer.domElement.removeEventListener("webglcontextlost", handleContextLost);
       disposeObject(scene);
+      environmentTarget.dispose();
       renderer.dispose();
       if (renderer.domElement.parentElement === viewport) {
         viewport.removeChild(renderer.domElement);

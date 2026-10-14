@@ -30,6 +30,16 @@ modules are separate named meshes/groups with glTF metadata. Internal cutaway
 content includes the toggleable `MODULE_EM_HARDENING` faceted avionics shield
 and two separately routed luminous trunks under `MODULE_REDUNDANT_CONTROLS`.
 
+The R2 detail pass adds a continuous airfoil-lofted centerbody/wing transition,
+raised forebody chines, metallic leading-edge caps, airfoil-shaped elevons,
+canted-tail edge and rudder seams, inlet compression ramps and splitters,
+multi-stage fan/stator detail, cowled engine shoulders, lined petalled nozzles,
+a framed transparent canopy with cockpit furniture, flush service panels, and
+modeled landing-door insets, hinges, and latches. Materials expose glTF-friendly
+metalness, roughness, clear-coat, transmission, and emissive values. The current
+browser export contains 154 meshes and 18,192 triangles in approximately 484 KB;
+the named interactive roots and optional-module hierarchy are unchanged.
+
 NASA Aeronautics' X-59 educational STL was imported during development as a
 real-aircraft proportion and silhouette reference, measured by the build
 script, and removed before export. No NASA geometry, livery, name, or logo is

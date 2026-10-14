@@ -20,7 +20,7 @@ test("AERIS-X contains authored aircraft systems and module metadata", async () 
   assert.ok(buffer.length < 2_000_000, "asset remains browser-friendly");
 
   const gltf = readGlbJson(buffer);
-  assert.ok((gltf.meshes ?? []).length >= 50, "airframe is split into detailed meshes");
+  assert.ok((gltf.meshes ?? []).length >= 120, "R2 airframe retains close-up detail meshes");
   const names = new Set((gltf.nodes ?? []).map((node) => node.name));
   for (const name of [
     "AERIS_X_ROOT",
@@ -34,6 +34,16 @@ test("AERIS-X contains authored aircraft systems and module metadata", async () 
     "PART_ENGINE_CORE_R",
     "PART_NOZZLE_L",
     "PART_NOZZLE_R",
+    "BLENDED_CENTERBODY_L",
+    "BLENDED_CENTERBODY_R",
+    "CANOPY_ARCH_MID",
+    "INTAKE_COMPRESSION_RAMP_L",
+    "INTAKE_COMPRESSION_RAMP_R",
+    "FAN_SPINNER_L",
+    "FAN_SPINNER_R",
+    "NOZZLE_INTERIOR_L",
+    "NOZZLE_INTERIOR_R",
+    "GEAR_BAY_INSET_NOSE",
   ]) {
     assert.ok(names.has(name), `${name} is present`);
   }
@@ -69,6 +79,7 @@ test("AERIS-X contains authored aircraft systems and module metadata", async () 
   assert.equal(root?.extras?.no_weapons, true, "asset is explicitly unarmed");
   assert.match(root?.extras?.coordinate_contract ?? "", /-Z nose-forward/);
   assert.match(root?.extras?.reference_url ?? "", /nasa\.gov/);
+  assert.match(root?.extras?.geometry_revision ?? "", /R2/);
 });
 
 test("Three.js loads AERIS-X parts and extras without losing interaction data", async () => {

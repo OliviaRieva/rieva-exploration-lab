@@ -188,6 +188,37 @@ function linePath(
     .join(" ");
 }
 
+function areaPath(
+  samples: readonly MissionChartSample[],
+  metric: MetricDefinition,
+  timeMaximum: number,
+  valueMinimum: number,
+  valueMaximum: number,
+) {
+  const plotWidth = GEOMETRY.width - GEOMETRY.left - GEOMETRY.right;
+  const plotHeight = GEOMETRY.height - GEOMETRY.top - GEOMETRY.bottom;
+  const baseline = GEOMETRY.top + plotHeight;
+  const timeSpan = Math.max(timeMaximum, 1);
+  const valueSpan = Math.max(valueMaximum - valueMinimum, Number.EPSILON);
+  const selected = decimate(samples, metric);
+  if (selected.length === 0) return "";
+  const points = selected.map((sample) => ({
+    x: GEOMETRY.left + (clamp(sample.timeS, 0, timeSpan) / timeSpan) * plotWidth,
+    y:
+      GEOMETRY.top +
+      (1 - (metricValue(sample, metric) - valueMinimum) / valueSpan) * plotHeight,
+  }));
+  const first = points[0];
+  const last = points[points.length - 1];
+  return [
+    `M${first.x.toFixed(2)},${baseline.toFixed(2)}`,
+    ...points.map(
+      (point) => `L${point.x.toFixed(2)},${point.y.toFixed(2)}`,
+    ),
+    `L${last.x.toFixed(2)},${baseline.toFixed(2)} Z`,
+  ].join(" ");
+}
+
 function formatNumber(value: number, decimals: number) {
   return value.toLocaleString("en-US", {
     minimumFractionDigits: decimals,
@@ -262,6 +293,9 @@ function MetricChart({
   const titleId = `mission-chart-title-${metric.key}-${id}`;
   const descriptionId = `mission-chart-description-${metric.key}-${id}`;
   const clipId = `mission-chart-clip-${metric.key}-${id}`;
+  const referenceFillId = `mission-chart-reference-fill-${metric.key}-${id}`;
+  const interruptedFillId = `mission-chart-interrupted-fill-${metric.key}-${id}`;
+  const outagePatternId = `mission-chart-outage-pattern-${metric.key}-${id}`;
   const referenceFinite = useMemo(
     () => reference.filter((sample) => validSample(sample, metric)),
     [metric, reference],
@@ -292,6 +326,14 @@ function MetricChart({
     () => linePath(interruptedFinite, metric, timeSpan, minimum, maximum),
     [interruptedFinite, maximum, metric, minimum, timeSpan],
   );
+  const referenceArea = useMemo(
+    () => areaPath(referenceFinite, metric, timeSpan, minimum, maximum),
+    [maximum, metric, minimum, referenceFinite, timeSpan],
+  );
+  const interruptedArea = useMemo(
+    () => areaPath(interruptedFinite, metric, timeSpan, minimum, maximum),
+    [interruptedFinite, maximum, metric, minimum, timeSpan],
+  );
   const summary = chartSummary(
     metric,
     displayedTimeS,
@@ -307,6 +349,11 @@ function MetricChart({
     ? GEOMETRY.left + (clamp(outage.endS, 0, timeSpan) / timeSpan) * plotWidth
     : 0;
   const outageWidth = Math.max(0, outageEndX - outageStartX);
+  const currentLabelX = clamp(
+    currentX,
+    GEOMETRY.left + 27,
+    GEOMETRY.left + plotWidth - 27,
+  );
 
   return (
     <figure className={`mission-charts__chart mission-charts__chart--${metric.key}`}>
@@ -335,7 +382,50 @@ function MetricChart({
               height={plotHeight}
             />
           </clipPath>
+          <linearGradient
+            id={referenceFillId}
+            x1="0"
+            x2="0"
+            y1={GEOMETRY.top}
+            y2={GEOMETRY.top + plotHeight}
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0" stopColor={CYAN} stopOpacity="0.2" />
+            <stop offset="0.72" stopColor={CYAN} stopOpacity="0.035" />
+            <stop offset="1" stopColor={CYAN} stopOpacity="0" />
+          </linearGradient>
+          <linearGradient
+            id={interruptedFillId}
+            x1="0"
+            x2="0"
+            y1={GEOMETRY.top}
+            y2={GEOMETRY.top + plotHeight}
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0" stopColor={AMBER} stopOpacity="0.12" />
+            <stop offset="0.72" stopColor={AMBER} stopOpacity="0.025" />
+            <stop offset="1" stopColor={AMBER} stopOpacity="0" />
+          </linearGradient>
+          <pattern
+            id={outagePatternId}
+            width="7"
+            height="7"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(35)"
+          >
+            <line x1="0" x2="0" y1="0" y2="7" stroke={AMBER} strokeOpacity="0.16" strokeWidth="1" />
+          </pattern>
         </defs>
+
+        <rect
+          className="mission-charts__plot-frame"
+          x={GEOMETRY.left}
+          y={GEOMETRY.top}
+          width={plotWidth}
+          height={plotHeight}
+          rx="2"
+          aria-hidden="true"
+        />
 
         <g className="mission-charts__grid" aria-hidden="true">
           {ticks.map((tick) => {
@@ -374,7 +464,14 @@ function MetricChart({
               width={outageWidth}
               height={plotHeight}
               fill={AMBER}
-              opacity="0.09"
+              opacity="0.055"
+            />
+            <rect
+              x={outageStartX}
+              y={GEOMETRY.top}
+              width={outageWidth}
+              height={plotHeight}
+              fill={`url(#${outagePatternId})`}
             />
             <line
               x1={outageStartX}
@@ -430,8 +527,9 @@ function MetricChart({
             );
           })}
           <text
-            x={GEOMETRY.left}
+            x={GEOMETRY.left - 10}
             y={13}
+            textAnchor="end"
             fill={LABEL}
             fontSize="10"
             fontWeight="600"
@@ -453,13 +551,27 @@ function MetricChart({
         </g>
 
         <g className="mission-charts__series" clipPath={`url(#${clipId})`}>
+          {referenceArea ? (
+            <path
+              className="mission-charts__area mission-charts__area--reference"
+              d={referenceArea}
+              fill={`url(#${referenceFillId})`}
+            />
+          ) : null}
+          {interruptedArea ? (
+            <path
+              className="mission-charts__area mission-charts__area--interrupted"
+              d={interruptedArea}
+              fill={`url(#${interruptedFillId})`}
+            />
+          ) : null}
           {referencePath ? (
             <path
               className="mission-charts__line mission-charts__line--reference"
               d={referencePath}
               fill="none"
               stroke={CYAN}
-              strokeWidth="2.25"
+              strokeWidth="1.9"
               strokeLinecap="round"
               strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
@@ -471,7 +583,7 @@ function MetricChart({
               d={interruptedPath}
               fill="none"
               stroke={AMBER}
-              strokeWidth="2.25"
+              strokeWidth="1.9"
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray="8 6"
@@ -485,18 +597,18 @@ function MetricChart({
             y1={GEOMETRY.top}
             y2={GEOMETRY.top + plotHeight}
             stroke={CURRENT}
-            strokeWidth="1"
-            strokeDasharray="3 5"
+            strokeWidth="0.9"
+            strokeDasharray="2 5"
             vectorEffect="non-scaling-stroke"
           />
           {referenceCurrent !== null ? (
             <circle
               cx={currentX}
               cy={yFor(referenceCurrent)}
-              r="3.5"
-              fill="#071522"
+              r="3.2"
+              fill="#ffffff"
               stroke={CYAN}
-              strokeWidth="2"
+              strokeWidth="1.8"
               vectorEffect="non-scaling-stroke"
             />
           ) : null}
@@ -504,13 +616,22 @@ function MetricChart({
             <circle
               cx={currentX}
               cy={yFor(interruptedCurrent)}
-              r="3.5"
-              fill={AMBER}
-              stroke="#071522"
-              strokeWidth="1.5"
+              r="3.2"
+              fill="#ffffff"
+              stroke={AMBER}
+              strokeWidth="1.8"
               vectorEffect="non-scaling-stroke"
             />
           ) : null}
+        </g>
+        <g className="mission-charts__current-readout" aria-hidden="true">
+          <path
+            d={`M${currentX - 3.5},${GEOMETRY.top} L${currentX + 3.5},${GEOMETRY.top} L${currentX},${GEOMETRY.top + 5} Z`}
+          />
+          <rect x={currentLabelX - 24} y="3" width="48" height="15" rx="7.5" />
+          <text x={currentLabelX} y="13.5" textAnchor="middle">
+            DAY {timeLabel(displayedTimeS, maximumTimeS)}
+          </text>
         </g>
       </svg>
       <p className="mission-charts__summary">{summary}</p>
