@@ -106,7 +106,7 @@ def add_bevel(object_: bpy.types.Object, width: float = 0.012, segments: int = 3
 
 
 def assign_material(object_: bpy.types.Object, material: bpy.types.Material) -> None:
-    if object_.type == "MESH":
+    if object_.type in {"MESH", "CURVE"} and hasattr(object_.data, "materials"):
         object_.data.materials.clear()
         object_.data.materials.append(material)
 
@@ -331,6 +331,8 @@ def curve_tube(
     *,
     radius: float = 0.012,
     part_id: str | None = None,
+    cyclic: bool = False,
+    construction: str | None = None,
 ) -> bpy.types.Object:
     curve = bpy.data.curves.new(f"{name}_curve", "CURVE")
     curve.dimensions = "3D"
@@ -339,6 +341,7 @@ def curve_tube(
     curve.bevel_resolution = 3
     spline = curve.splines.new("BEZIER")
     spline.bezier_points.add(len(points) - 1)
+    spline.use_cyclic_u = cyclic
     for point, coordinate in zip(spline.bezier_points, points):
         point.co = coordinate
         point.handle_left_type = "AUTO"
@@ -348,7 +351,35 @@ def curve_tube(
     object_.parent = parent
     assign_material(object_, material)
     tag(object_, role=role, part_id=part_id)
+    if construction:
+        object_["construction"] = construction
     return object_
+
+
+def curve_tube_world(
+    name: str,
+    parent: bpy.types.Object,
+    points: list[tuple[float, float, float]],
+    pivot: Vector,
+    material: bpy.types.Material,
+    role: str,
+    *,
+    radius: float = 0.012,
+    cyclic: bool = False,
+    construction: str | None = None,
+) -> bpy.types.Object:
+    """Author a curve in body-space, then attach it to an articulated pivot."""
+    local_points = [tuple(Vector(point) - pivot) for point in points]
+    return curve_tube(
+        name,
+        parent,
+        local_points,
+        material,
+        role,
+        radius=radius,
+        cyclic=cyclic,
+        construction=construction,
+    )
 
 
 def mesh_object(
@@ -374,6 +405,40 @@ def mesh_object(
     smooth(object_)
     tag(object_, role=role, part_id=part_id, cutaway=cutaway)
     return object_
+
+
+def front_ribbon(
+    name: str,
+    parent: bpy.types.Object,
+    points: list[tuple[float, float, float]],
+    material: bpy.types.Material,
+    role: str,
+    *,
+    width: float,
+    width_axis: str = "x",
+    construction: str = "woven restraint ribbon",
+) -> bpy.types.Object:
+    """Make a low-profile flat webbing strip that follows authored points."""
+    vertices: list[tuple[float, float, float]] = []
+    half = width * 0.5
+    for x, y, z in points:
+        if width_axis == "z":
+            vertices.extend(((x, y, z - half), (x, y, z + half)))
+        else:
+            vertices.extend(((x - half, y, z), (x + half, y, z)))
+    faces = [
+        (index * 2, index * 2 + 1, index * 2 + 3, index * 2 + 2)
+        for index in range(len(points) - 1)
+    ]
+    result = mesh_object(name, parent, vertices, faces, material, role)
+    solidify = result.modifiers.new("Webbing thickness", "SOLIDIFY")
+    solidify.thickness = 0.0024
+    solidify.offset = 0.0
+    bevel = result.modifiers.new("Soft webbing edge", "BEVEL")
+    bevel.width = 0.0018
+    bevel.segments = 2
+    result["construction"] = construction
+    return result
 
 
 def lofted_round_rect(
@@ -607,8 +672,11 @@ def concept_materials(concept: str) -> dict[str, bpy.types.Material]:
             "accent": "#65d5ec", "metal": "#687684", "dust": "#bda57f", "assist": "#9aaebb",
         },
         "areo": {
-            "shell": "#f2eee8", "secondaryShell": "#b9a990", "underlayer": "#241d20",
-            "accent": "#d79258", "metal": "#776f70", "dust": "#9b624e", "assist": "#ab8f7e",
+            # Blender's material inputs are linear values. These deliberately
+            # deeper inputs render as a saturated signal orange instead of the
+            # pale, skin-like peach produced by the previous palette.
+            "shell": "#a51b03", "secondaryShell": "#14161a", "underlayer": "#08090b",
+            "accent": "#bd520d", "metal": "#25282d", "dust": "#5b210e", "assist": "#38251e",
         },
         "vector": {
             "shell": "#171821", "secondaryShell": "#40364d", "underlayer": "#0a0b10",
@@ -631,6 +699,32 @@ def concept_materials(concept: str) -> dict[str, bpy.types.Material]:
     result["seam"] = make_material(f"{concept}_seam", "#27313a" if concept != "vector" else "#a58ac0", roughness=0.78, sheen=0.12)
     result["sole"] = make_material(f"{concept}_sole", "#20252c" if concept != "vector" else "#0e1017", roughness=0.82)
     result["lining"] = make_material(f"{concept}_lining", "#323b45" if concept != "vector" else "#1a1823", roughness=0.9, sheen=0.2)
+    result["webbing"] = make_material(
+        f"{concept}_webbing",
+        "#34404a" if concept == "selene" else ("#0b0d11" if concept == "areo" else "#24202e"),
+        roughness=0.84,
+        sheen=0.22,
+    )
+    result["fold"] = make_material(
+        f"{concept}_fold",
+        palettes["secondaryShell"] if concept in {"areo", "vector"} else palettes["shell"],
+        roughness=0.58,
+        sheen=0.24,
+    )
+    result["gasket"] = make_material(
+        f"{concept}_gasket",
+        "#1d252c" if concept != "vector" else "#17131e",
+        roughness=0.72,
+        sheen=0.08,
+    )
+    result["outerPanel"] = make_material(
+        f"{concept}_outer_panel",
+        "#741505" if concept == "areo" else palettes["secondaryShell"],
+        roughness=0.48,
+        coat=0.16,
+        coat_roughness=0.48,
+        sheen=0.22,
+    )
     result["skin"] = make_material(f"{concept}_skin", "#9b6957", roughness=0.62)
     result["hair"] = make_material(f"{concept}_hair", "#2b2024", roughness=0.7)
     result["visor"] = make_material(
@@ -655,8 +749,17 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
         f"CONCEPT_{display_name}",
         conceptVariant=concept,
         display_name=display_name,
-        design_revision="anatomical-tailoring-v2",
+        design_revision="softgoods-tailoring-v3",
         authored_in="Blender 5",
+    )
+    root["garment_class"] = (
+        "surface EVA concept with pressure enclosure and life support"
+        if concept != "vector"
+        else "Earth mobility research garment; not a vacuum pressure suit"
+    )
+    root["reference_translation"] = (
+        "original RIEVA geometry informed by general aviation soft-goods construction; "
+        "no third-party model geometry or textures"
     )
     concept_proportions = {
         "selene": (0.99, 1.00, 1.00),
@@ -691,6 +794,12 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
     expansion = 0.010 if concept == "vector" else (0.019 if concept == "areo" else 0.017)
     shell_role = "underlayer" if concept == "vector" else "shell"
     shell_material = materials[shell_role]
+    # MALTE's outer restraint panels remain orange so the pressure garment
+    # reads as one continuous tailored suit. Graphite is reserved for actual
+    # articulation zones, seals, hard interfaces and equipment.
+    outer_panel_material = materials["outerPanel"] if concept == "areo" else materials["secondaryShell"]
+    outer_panel_role = "shell" if concept == "areo" else "secondaryShell"
+    fold_role = "underlayer" if concept == "areo" else shell_role
 
     # Real Blender Studio anatomy drives the surface silhouette. Overlapping
     # seams are intentionally covered by articulated bearings and textile bands.
@@ -708,7 +817,7 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             0.93 <= c.z < 1.34 and abs(c.x) < 0.245 and
             (c.y < -0.052 or c.y > 0.038)
         ),
-        parent=layer_group, pivot=Vector(), material=materials["secondaryShell"], role="secondaryShell",
+        parent=layer_group, pivot=Vector(), material=outer_panel_material, role=outer_panel_role,
         expansion=expansion + (0.010 if concept != "vector" else 0.005), cutaway=True,
     )
 
@@ -716,7 +825,7 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
     mesh_from_source_region(
         source, f"{display_name}_pelvis_tailoring",
         lambda c: 0.70 <= c.z < 0.96 and abs(c.x) < 0.245,
-        parent=lower_group, pivot=Vector(), material=materials["secondaryShell"], role="secondaryShell",
+        parent=lower_group, pivot=Vector(), material=outer_panel_material, role=outer_panel_role,
         expansion=expansion, cutaway=concept != "vector",
     )
 
@@ -725,7 +834,7 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
     mesh_from_source_region(
         source, f"{display_name}_contoured_shoulder_yoke",
         lambda c: 1.285 <= c.z < 1.395 and abs(c.x) < 0.285 and c.y < -0.015,
-        parent=layer_group, pivot=Vector(), material=materials["secondaryShell"], role="secondaryShell",
+        parent=layer_group, pivot=Vector(), material=outer_panel_material, role=outer_panel_role,
         expansion=expansion + 0.014, cutaway=True,
     )
     mesh_from_source_region(
@@ -752,6 +861,94 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
         materials["seam"], "seam", radius=0.0036,
     )
 
+    # A visible restraint/load path makes the garment read as technical soft
+    # goods rather than a painted body. These straps are original RIEVA
+    # geometry; they borrow only the general aviation practice of routing a
+    # harness from the shoulders into a waist load path.
+    for side in (-1, 1):
+        harness = front_ribbon(
+            f"{display_name}_{'left' if side < 0 else 'right'}_restraint_harness",
+            layer_group,
+            [
+                (side * 0.165, -0.157, 1.345),
+                (side * 0.128, -0.194, 1.245),
+                (side * 0.105, -0.207, 1.090),
+                (side * 0.145, -0.184, 0.925),
+            ],
+            materials["webbing"], "underlayer", width=0.015 if concept == "areo" else 0.022,
+            construction="woven restraint webbing over the pressure architecture",
+        )
+        harness["garment_function"] = "load-path restraint; not a pressure seal"
+    waist_harness = front_ribbon(
+        f"{display_name}_scalloped_waist_harness",
+        layer_group,
+        [
+            (-0.190, -0.142, 0.940),
+            (-0.100, -0.181, 0.918),
+            (0.0, -0.194, 0.912),
+            (0.100, -0.181, 0.918),
+            (0.190, -0.142, 0.940),
+        ],
+        materials["webbing"], "underlayer", width=0.014 if concept == "areo" else 0.020, width_axis="z",
+        construction="shaped waist load-distribution webbing",
+    )
+    waist_harness["garment_function"] = "restraint and equipment load distribution"
+
+    # Compact front service manifold: an authored tapered shell with individual
+    # connectors. It deliberately avoids copying any flight garment layout.
+    manifold = lofted_round_rect(
+        f"{display_name}_pressure_service_manifold", layer_group,
+        [
+            (1.090, 0.055, 0.009, 0.002),
+            (1.112, 0.068, 0.014, 0.000),
+            (1.198, 0.067, 0.015, 0.000),
+            (1.220, 0.050, 0.009, 0.002),
+        ],
+        materials["metal"], "metal", y_center=-0.199,
+    )
+    manifold["garment_function"] = "conceptual suit service and sensor interface"
+    for side, connector_z, connector_radius, connector_material, connector_role in (
+        (-1, 1.150, 0.0125, materials["metal"], "metal"),
+        (1, 1.174, 0.0105, materials["accent"], "accent"),
+    ):
+        connector = cylinder(
+            f"{display_name}_{'left' if side < 0 else 'right'}_service_connector",
+            layer_group,
+            (side * 0.037, -0.217, connector_z),
+            connector_radius,
+            0.014,
+            connector_material,
+            connector_role,
+            rotation=(math.pi / 2, 0, 0),
+            vertices=24,
+        )
+        connector["garment_function"] = "conceptual keyed utility coupling"
+    cylinder(
+        f"{display_name}_service_status_window",
+        layer_group,
+        (0.010, -0.218, 1.198),
+        0.0085,
+        0.012,
+        materials["visor"],
+        "visor",
+        rotation=(math.pi / 2, 0, 0),
+        vertices=24,
+    )
+
+    # Low-relief quilt channels imply controlled ease and local padding. They
+    # are intentionally sparse so they do not masquerade as a certified layer
+    # recipe or add cartoon bulk.
+    quilt_rows = () if concept == "areo" else (0.985, 1.025, 1.305)
+    for row, z in enumerate(quilt_rows):
+        quilt = curve_tube(
+            f"{display_name}_torso_quilt_channel_{row}",
+            layer_group,
+            [(-0.155, -0.171, z), (0.0, -0.193, z - 0.006), (0.155, -0.171, z)],
+            materials["fold"], fold_role, radius=0.0025,
+            construction="low-relief soft-goods quilting channel",
+        )
+        quilt["softgoods_detail"] = "illustrative quilting / controlled-ease channel"
+
     for side, arm, forearm, shoulder, elbow in (
         (1, arm_l, forearm_l, shoulder_l, elbow_l),
         (-1, arm_r, forearm_r, shoulder_r, elbow_r),
@@ -771,7 +968,8 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
                 1.235 <= c.z < 1.395
             ),
             parent=shoulder_part, pivot=shoulder,
-            material=materials["secondaryShell"], role="secondaryShell",
+            material=outer_panel_material if concept == "areo" else materials["secondaryShell"],
+            role=outer_panel_role if concept == "areo" else "secondaryShell",
             expansion=expansion + 0.016, cutaway=True,
         )
         elbow_part = part(forearm, f"elbow-{suffix}", f"{display_name} {suffix} elbow", explode=(side * 0.045, 0, 0))
@@ -793,7 +991,7 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             source, f"{display_name}_{suffix}_articulated_glove",
             lambda c, side=side: side * c.x > 0.245 and c.z < 0.80 and c.z > 0.57,
             parent=glove_part, pivot=elbow, material=materials["underlayer"], role="underlayer",
-            expansion=0.014,
+            expansion=0.007 if concept == "areo" else 0.012,
         )
         mesh_from_source_region(
             source, f"{display_name}_{suffix}_glove_metacarpal_guard",
@@ -802,7 +1000,7 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             ),
             parent=glove_part, pivot=elbow,
             material=materials["secondaryShell"], role="secondaryShell",
-            expansion=0.024, cutaway=True,
+            expansion=0.011 if concept == "areo" else 0.020, cutaway=True,
         )
         wrist_part = part(forearm, f"wrist-ring-{suffix}", f"{display_name} {suffix} wrist interface", explode=(side * 0.04, 0, 0))
         mesh_from_source_region(
@@ -812,6 +1010,34 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             material=materials["metal"], role="metal",
             expansion=0.020, cutaway=True,
         )
+        mesh_from_source_region(
+            source, f"{display_name}_{suffix}_soft_wrist_gasket",
+            lambda c, side=side: side * c.x > 0.30 and 0.755 <= c.z < 0.825,
+            parent=wrist_part, pivot=elbow,
+            material=materials["gasket"], role="underlayer",
+            expansion=0.013, cutaway=True,
+        )
+
+        # Soft folds sit on the joint-facing forearm rather than forming a hard
+        # mechanical ring. Their asymmetry keeps the cloth from reading as a
+        # stack of primitives while preserving the existing animation pivot.
+        for fold_index, (fold_z, fold_x) in enumerate(((1.035, 0.310), (1.008, 0.321), (0.980, 0.331))):
+            center_x = side * fold_x
+            curve_tube_world(
+                f"{display_name}_{suffix}_elbow_ease_fold_{fold_index}",
+                elbow_part,
+                [
+                    (center_x - side * 0.040, -0.052, fold_z - 0.011),
+                    (center_x, -0.075 - fold_index * 0.002, fold_z),
+                    (center_x + side * 0.038, -0.050, fold_z + 0.010),
+                ],
+                elbow,
+                materials["fold"],
+                fold_role,
+                radius=0.0038,
+                construction="controlled-ease pressure-garment fold",
+            )
+
 
     for side, leg, shin, hip, knee in (
         (1, leg_l, shin_l, hip_l, knee_l),
@@ -867,6 +1093,43 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             material=materials["dust"], role="dust",
             expansion=0.035 if concept != "vector" else 0.019, cutaway=True,
         )
+        mesh_from_source_region(
+            source, f"{display_name}_{suffix}_body_contoured_boot_vamp",
+            lambda c, side=side: side * c.x > 0.008 and c.z < 0.135 and c.y < -0.030,
+            parent=boot_part, pivot=knee,
+            material=materials["secondaryShell"], role="secondaryShell",
+            expansion=0.032 if concept != "vector" else 0.019, cutaway=True,
+        )
+        for fold_index, fold_z in enumerate((0.492, 0.455)):
+            curve_tube_world(
+                f"{display_name}_{suffix}_knee_ease_fold_{fold_index}",
+                knee_part,
+                [
+                    (side * 0.058, -0.062, fold_z),
+                    (side * 0.105, -0.103 - fold_index * 0.002, fold_z - 0.006),
+                    (side * 0.151, -0.060, fold_z + 0.002),
+                ],
+                knee,
+                materials["fold"],
+                fold_role,
+                radius=0.0024,
+                construction="controlled-ease knee fold",
+            )
+        for closure_index, closure_z in enumerate((0.112,)):
+            curve_tube_world(
+                f"{display_name}_{suffix}_boot_vamp_closure_{closure_index}",
+                boot_part,
+                [
+                    (side * 0.066, -0.135, closure_z),
+                    (side * 0.105, -0.164, closure_z + 0.004),
+                    (side * 0.144, -0.135, closure_z),
+                ],
+                knee,
+                materials["webbing"],
+                "underlayer",
+                radius=0.0028,
+                construction="low-profile replaceable boot closure webbing",
+            )
 
     # A real human face from the CC0 base mesh remains visible behind the visor,
     # and is fully exposed on BASTIAN, which is explicitly not an EVA system.
@@ -897,16 +1160,42 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             materials["visor"], "visor", z_min=1.415, z_max=1.690,
             outward=0.016, cutaway=True,
         )
-        for label, points in (
-            ("upper", [(-0.128, -0.186, 1.685), (0, -0.204, 1.704), (0.128, -0.186, 1.685)]),
-            ("lower", [(-0.145, -0.184, 1.425), (0, -0.205, 1.405), (0.145, -0.184, 1.425)]),
-            ("left", [(-0.128, -0.186, 1.685), (-0.158, -0.190, 1.555), (-0.145, -0.184, 1.425)]),
-            ("right", [(0.128, -0.186, 1.685), (0.158, -0.190, 1.555), (0.145, -0.184, 1.425)]),
-        ):
-            curve_tube(
-                f"{display_name}_visor_{label}_seal", visor_part, points,
-                materials["metal"], "metal", radius=0.006,
-            )
+        # One continuous rounded frame avoids the square, assembled appearance
+        # of four independent seal strips while keeping the visor detachable.
+        visor_outline = [
+            (-0.100, -0.194, 1.695),
+            (0.000, -0.210, 1.710),
+            (0.100, -0.194, 1.695),
+            (0.151, -0.196, 1.630),
+            (0.158, -0.198, 1.530),
+            (0.145, -0.192, 1.435),
+            (0.000, -0.210, 1.405),
+            (-0.145, -0.192, 1.435),
+            (-0.158, -0.198, 1.530),
+            (-0.151, -0.196, 1.630),
+        ]
+        rim = curve_tube(
+            f"{display_name}_rounded_visor_retention_frame",
+            visor_part,
+            visor_outline,
+            materials["metal"],
+            "metal",
+            radius=0.0052,
+            cyclic=True,
+            construction="continuous rounded visor-retention frame",
+        )
+        rim["qualification_note"] = "illustrative geometry; pressure retention requires verified hardware"
+        gasket = curve_tube(
+            f"{display_name}_continuous_secondary_visor_gasket",
+            visor_part,
+            [(x, y + 0.008, z) for x, y, z in visor_outline],
+            materials["gasket"],
+            "underlayer",
+            radius=0.0032,
+            cyclic=True,
+            construction="continuous elastomeric visor-gasket concept",
+        )
+        gasket["qualification_note"] = "geometry is illustrative; sealing requires tested hardware"
         sun_part = part(helmet, "helmet-sun-visor", f"{display_name} sun visor", explode=(0, -0.1, 0.13))
         curved_visor(
             f"{display_name}_retractable_sun_visor", sun_part,
@@ -924,20 +1213,45 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
         for side in (-1, 1):
             cylinder(
                 f"{display_name}_{'left' if side < 0 else 'right'}_helmet_light", lights_part,
-                (side * 0.17, -0.19, 1.575), 0.025, 0.035, materials["light"], "light",
+                (side * 0.166, -0.194, 1.575), 0.014, 0.018, materials["light"], "light",
                 rotation=(math.pi / 2, 0, 0),
             )
         ears = part(helmet, "helmet-cat-ear-pods", f"{display_name} cat-ear antenna pods", explode=(0, 0, 0.16))
+        rail = curve_tube(
+            f"{display_name}_external_crown_equipment_rail",
+            ears,
+            [
+                (-0.154, 0.032, 1.708),
+                (-0.112, 0.068, 1.750),
+                (0.0, 0.083, 1.776),
+                (0.112, 0.068, 1.750),
+                (0.154, 0.032, 1.708),
+            ],
+            materials["metal"], "metal", radius=0.008,
+            construction="external non-penetrating equipment rail",
+        )
+        rail["integration_note"] = "outside pressure shell; clearance, RF, thermal and snag testing required"
         for side in (-1, 1):
+            curve_tube(
+                f"{display_name}_{'left' if side < 0 else 'right'}_pod_rail_saddle",
+                ears,
+                [
+                    (side * 0.154, 0.032, 1.708),
+                    (side * 0.154, 0.024, 1.745),
+                    (side * 0.143, 0.015, 1.770),
+                ],
+                materials["metal"], "metal", radius=0.009,
+                construction="non-penetrating pod saddle",
+            )
             pod = uv_sphere(
                 f"{display_name}_{'left' if side < 0 else 'right'}_rounded_antenna_pod", ears,
-                (side * 0.142, 0.012, 1.765), (0.033, 0.039, 0.052),
+                (side * 0.145, 0.010, 1.782), (0.031, 0.037, 0.047),
                 materials["secondaryShell"], "secondaryShell", segments=28, rings=16,
             )
             pod.rotation_euler.y = side * -0.22
             cylinder(
                 f"{display_name}_{'left' if side < 0 else 'right'}_pod_light", ears,
-                (side * 0.15, -0.057, 1.805), 0.011, 0.018, materials["light"], "light",
+                (side * 0.151, -0.050, 1.813), 0.010, 0.016, materials["light"], "light",
                 rotation=(math.pi / 2, 0, 0), vertices=20,
             )
 
@@ -988,6 +1302,23 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             [(0.16, 0.25, 1.26), (0.27, 0.08, 1.28), (0.19, -0.02, 1.34)],
             materials["accent"], "accent", radius=0.012,
         )
+        for side in (-1, 1):
+            service_hose = curve_tube(
+                f"{display_name}_{'left' if side < 0 else 'right'}_braided_service_hose",
+                backpack,
+                [
+                    (side * 0.125, 0.275, 1.225),
+                    (side * 0.245, 0.125, 1.285),
+                    (side * 0.225, -0.035, 1.270),
+                    (side * 0.145, -0.150, 1.205),
+                    (side * 0.048, -0.218, 1.165),
+                ],
+                materials["gasket" if side < 0 else "accent"],
+                "underlayer" if side < 0 else "accent",
+                radius=0.0085,
+                construction="flexible suit-service hose with strain-relief routing",
+            )
+            service_hose["integration_note"] = "conceptual routing; bend radius and snag hazards require testing"
 
     # Three real tailoring options. They alter protective outer panels only and
     # never stand in for pressure retention or life support.
@@ -1000,6 +1331,7 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
         ("field-rig", 0.95, 1.29, 0.225, 0.048, "secondaryShell"),
         ("adaptive", 1.01, 1.35, 0.205, 0.050, "metal"),
     ):
+        panel_uses_outer_shell = concept == "areo" and material_key == "secondaryShell"
         panel = mesh_from_source_region(
             source,
             f"{display_name}_{style}_body_contoured_torso_panel",
@@ -1007,8 +1339,8 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
                 z_min <= c.z <= z_max and abs(c.x) <= x_limit and c.y < -0.055,
             parent=layer_group,
             pivot=Vector(),
-            material=materials[material_key],
-            role=material_key,
+            material=outer_panel_material if panel_uses_outer_shell else materials[material_key],
+            role="shell" if panel_uses_outer_shell else material_key,
             expansion=extra,
             cutaway=True,
         )
@@ -1041,8 +1373,8 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
                     side * c.x > 0.025 and z_min <= c.z <= z_max and c.y < front_limit,
                 parent=leg,
                 pivot=hip,
-                material=materials["secondaryShell"],
-                role="secondaryShell",
+                material=outer_panel_material if concept == "areo" else materials["secondaryShell"],
+                role="shell" if concept == "areo" else "secondaryShell",
                 expansion=expansion + 0.018,
                 cutaway=True,
             )
@@ -1054,6 +1386,20 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
                 f"{display_name}_{style}_{'left' if side < 0 else 'right'}_sole",
                 shin, materials["sole"], "underlayer", depth=tread_depth, style=style,
             )
+            tread_width = 0.068 if style == "traverse" else (0.056 if style == "rock" else 0.082)
+            for lug_index, y in enumerate((-0.145, -0.088, -0.028, 0.035)):
+                lug = rounded_box(
+                    f"{display_name}_{style}_{'left' if side < 0 else 'right'}_tread_lug_{lug_index}",
+                    shin,
+                    (0, y, -0.451),
+                    (tread_width, 0.013 if style != "stability" else 0.016, 0.006),
+                    materials["sole"],
+                    "underlayer",
+                    rotation=(0, 0, (0.11 if lug_index % 2 else -0.11) if style == "rock" else 0),
+                    bevel=0.004,
+                )
+                lug["bootStyle"] = style
+                lug["construction"] = "replaceable outsole traction lug concept"
 
     # Mission accessories are separate named nodes, making both selection and
     # honest equipment-state reporting possible in Three.js.
@@ -1163,13 +1509,13 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
                 cutaway=True,
             )
     elif concept == "areo":
-        for band in range(5):
+        for band in range(1):
             z = 1.02 + band * 0.062
             curve_tube(
                 f"MALTE_geology_lamella_{band}", layer_group,
                 [(-0.17 + band * 0.008, -0.182, z), (0.0, -0.201, z + 0.008), (0.16, -0.174, z + 0.022)],
                 materials["dust" if band % 2 else "secondaryShell"],
-                "dust" if band % 2 else "secondaryShell", radius=0.0048,
+                "dust" if band % 2 else "secondaryShell", radius=0.0032,
             )
         mesh_from_source_region(
             source, "MALTE_body_contoured_asymmetric_geology_pocket",
@@ -1178,6 +1524,22 @@ def build_concept(source_object: bpy.types.Object, concept: str, display_name: s
             expansion=expansion + 0.036, cutaway=True,
         )
     else:
+        recovery_yoke = curve_tube(
+            "BASTIAN_earth_training_recovery_yoke",
+            layer_group,
+            [
+                (-0.205, -0.018, 1.315),
+                (-0.150, -0.102, 1.375),
+                (0.0, -0.126, 1.405),
+                (0.150, -0.102, 1.375),
+                (0.205, -0.018, 1.315),
+            ],
+            materials["secondaryShell"], "secondaryShell", radius=0.022,
+            construction="soft Earth-training recovery / harness yoke concept",
+        )
+        recovery_yoke["qualification_note"] = (
+            "not a life preserver, pressure enclosure, or certified launch/entry garment"
+        )
         for side in (-1, 1):
             curve_tube(
                 f"BASTIAN_{'left' if side < 0 else 'right'}_kinetic_load_path", body,
@@ -1232,6 +1594,9 @@ def setup_preview(roots: list[bpy.types.Object], preview_path: Path) -> None:
         "shoulder-camera",
         "tether-reel",
         "sample-kit",
+        # The external communication/light pods remain available in the live
+        # configurator, but the neutral product view presents the base helmet.
+        "helmet-cat-ear-pods",
     }
     hidden_roots: list[bpy.types.Object] = []
     for object_ in bpy.context.scene.objects:
@@ -1287,9 +1652,23 @@ def setup_preview(roots: list[bpy.types.Object], preview_path: Path) -> None:
     scene.render.filepath = str(preview_path)
     scene.render.film_transparent = False
     scene.world.color = (0.028, 0.025, 0.06)
-    scene.view_settings.exposure = -0.65
+    scene.view_settings.exposure = -0.88
     scene.view_settings.look = "Medium High Contrast"
     bpy.ops.render.render(write_still=True)
+
+    three_quarter = preview_path.with_name(f"{preview_path.stem}-three-quarter{preview_path.suffix}")
+    camera.location = (4.65, -6.15, 1.18)
+    look_at(camera, Vector((0, 0, 0.90)))
+    scene.render.filepath = str(three_quarter)
+    bpy.ops.render.render(write_still=True)
+
+    rear = preview_path.with_name(f"{preview_path.stem}-rear{preview_path.suffix}")
+    camera.location = (4.8, 5.95, 1.15)
+    look_at(camera, Vector((0, 0, 0.92)))
+    scene.render.filepath = str(rear)
+    bpy.ops.render.render(write_still=True)
+    print(f"RIEVA_PREVIEW_THREE_QUARTER={three_quarter}")
+    print(f"RIEVA_PREVIEW_REAR={rear}")
 
 
 def export_glb(roots: list[bpy.types.Object], output_path: Path) -> None:

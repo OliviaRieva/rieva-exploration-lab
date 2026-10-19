@@ -506,6 +506,89 @@ def annular_face(
     return mesh_object(name, vertices, faces, mat, parent, **values)
 
 
+def wheel_mesh(
+    name: str,
+    center: Sequence[float],
+    radius: float,
+    width: float,
+    tire_mat: bpy.types.Material,
+    hub_mat: bpy.types.Material,
+    parent: bpy.types.Object,
+    *,
+    radial_segments: int = 28,
+    section_segments: int = 8,
+    **values: object,
+) -> tuple[bpy.types.Object, bpy.types.Object]:
+    """Build a compact stowed aircraft wheel without primitive operators.
+
+    The wheel axis follows Blender X, so the tread runs in the longitudinal /
+    vertical plane.  A separate inset hub gives the browser cutaway a useful
+    construction cue while the complete assembly remains behind the closed
+    cruise door.
+    """
+
+    cx, cy, cz = center
+    tube_radius = max(width * 0.42, radius * 0.13)
+    tire_vertices: list[tuple[float, float, float]] = []
+    for radial_index in range(radial_segments):
+        theta = 2 * math.pi * radial_index / radial_segments
+        for section_index in range(section_segments):
+            phi = 2 * math.pi * section_index / section_segments
+            local_radius = radius - tube_radius + tube_radius * math.cos(phi)
+            tire_vertices.append(
+                (
+                    cx + tube_radius * math.sin(phi),
+                    cy + local_radius * math.cos(theta),
+                    cz + local_radius * math.sin(theta),
+                )
+            )
+    tire_faces: list[tuple[int, ...]] = []
+    for radial_index in range(radial_segments):
+        radial_next = (radial_index + 1) % radial_segments
+        for section_index in range(section_segments):
+            section_next = (section_index + 1) % section_segments
+            a = radial_index * section_segments + section_index
+            b = radial_next * section_segments + section_index
+            c = radial_next * section_segments + section_next
+            d = radial_index * section_segments + section_next
+            tire_faces.append((a, b, c, d))
+    tire = mesh_object(name, tire_vertices, tire_faces, tire_mat, parent, **values)
+
+    hub_radius = radius * 0.42
+    hub_depth = width * 0.58
+    hub_vertices: list[tuple[float, float, float]] = []
+    for x_offset in (-hub_depth / 2, hub_depth / 2):
+        for index in range(radial_segments):
+            theta = 2 * math.pi * index / radial_segments
+            hub_vertices.append(
+                (
+                    cx + x_offset,
+                    cy + hub_radius * math.cos(theta),
+                    cz + hub_radius * math.sin(theta),
+                )
+            )
+    hub_faces: list[tuple[int, ...]] = []
+    for index in range(radial_segments):
+        nxt = (index + 1) % radial_segments
+        hub_faces.append((index, nxt, radial_segments + nxt, radial_segments + index))
+    hub_faces.extend(
+        [
+            tuple(range(radial_segments))[::-1],
+            tuple(range(radial_segments, radial_segments * 2)),
+        ]
+    )
+    hub = mesh_object(
+        f"{name}_HUB",
+        hub_vertices,
+        hub_faces,
+        hub_mat,
+        parent,
+        material_role="landing-gear-wheel-hub",
+        internal_component=True,
+    )
+    return tire, hub
+
+
 def fin_surface(
     name: str,
     side: int,
@@ -1242,6 +1325,14 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         "cockpit": material("AERIS cockpit interior", "#111421", metallic=0.05, roughness=0.74),
         "cockpit_soft": material("AERIS cockpit restraint textile", "#2a2435", metallic=0.0, roughness=0.90),
         "gear_bay": material("AERIS landing bay interior", "#28303d", metallic=0.58, roughness=0.46),
+        "tire": material("AERIS qualified-tire candidate", "#080a0f", metallic=0.0, roughness=0.93),
+        "hydraulic": material(
+            "AERIS landing-gear actuator",
+            "#8997a5",
+            metallic=0.92,
+            roughness=0.20,
+            anisotropy=0.44,
+        ),
         "em_shield": material(
             "AERIS faceted EM shield witness",
             "#d8b66d",
@@ -1267,8 +1358,9 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         reference_metrics=json.dumps(reference, sort_keys=True),
         no_weapons=True,
         scientific_status="concept geometry; not flight-qualified or CFD-validated",
-        geometry_revision="AERIS-X R2 blended-airframe detail pass",
+        geometry_revision="AERIS-X R3 fighter-proportion fidelity pass",
         surface_model_note="PBR-ready authored geometry; no claim of CFD or structural validation",
+        visual_benchmark_note="Original geometry benchmarked against public fighter-model preview only; no third-party mesh imported",
     )
 
     fuselage_group = empty(
@@ -1517,16 +1609,20 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         material_role="instrument-coaming",
     )
 
+    # A fighter-like 0.67 span/length proportion replaces the earlier broad
+    # flying-wing silhouette.  The inner stations retain a long root chord for
+    # fuel/structure, while the cranked outer leading edge and clipped tip keep
+    # this an original AERIS planform rather than a copy of an existing type.
     wing_stations = [
-        (0.70, 4.78, -4.05, 0.046),
-        (1.42, 4.05, -3.76, 0.044),
-        (2.18, 3.20, -3.35, 0.041),
-        (2.88, 2.34, -2.90, 0.039),
-        (3.58, 1.42, -2.42, 0.036),
-        (4.20, 0.66, -2.15, 0.034),
-        (4.78, -0.12, -1.95, 0.031),
-        (5.26, -0.65, -1.73, 0.026),
-        (5.54, -0.95, -1.60, 0.020),
+        (0.70, 4.20, -4.08, 0.047),
+        (1.28, 3.94, -3.92, 0.046),
+        (1.92, 3.45, -3.62, 0.044),
+        (2.56, 2.79, -3.25, 0.041),
+        (3.16, 2.02, -2.85, 0.038),
+        (3.70, 1.26, -2.47, 0.035),
+        (4.16, 0.48, -2.15, 0.032),
+        (4.54, -0.24, -1.90, 0.027),
+        (4.78, -0.86, -1.72, 0.021),
     ]
     for side in (-1, 1):
         label = mirrored_name(side)
@@ -1552,15 +1648,15 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         swept_rectangular_path(
             f"LEADING_EDGE_WITNESS_{label}",
             [
-                (side * 0.78, 4.70, 0.17),
-                (side * 1.46, 3.98, 0.16),
-                (side * 2.21, 3.14, 0.14),
-                (side * 2.91, 2.28, 0.12),
-                (side * 3.61, 1.36, 0.10),
-                (side * 4.23, 0.60, 0.08),
-                (side * 4.81, -0.18, 0.06),
-                (side * 5.28, -0.70, 0.045),
-                (side * 5.52, -0.95, 0.035),
+                (side * 0.77, 4.14, 0.17),
+                (side * 1.34, 3.88, 0.16),
+                (side * 1.98, 3.39, 0.15),
+                (side * 2.62, 2.73, 0.13),
+                (side * 3.22, 1.96, 0.11),
+                (side * 3.76, 1.20, 0.09),
+                (side * 4.22, 0.42, 0.07),
+                (side * 4.59, -0.30, 0.05),
+                (side * 4.76, -0.86, 0.035),
             ],
             0.072,
             0.042,
@@ -1572,10 +1668,10 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         swept_rectangular_path(
             f"WING_LOAD_PATH_{label}",
             [
-                (side * 1.18, 2.12, 0.245),
-                (side * 2.32, 1.22, 0.205),
-                (side * 3.45, 0.12, 0.165),
-                (side * 4.62, -1.18, 0.105),
+                (side * 1.12, 2.04, 0.245),
+                (side * 2.06, 1.34, 0.205),
+                (side * 3.02, 0.36, 0.165),
+                (side * 4.12, -1.18, 0.105),
             ],
             0.034,
             0.020,
@@ -1587,10 +1683,10 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         # Flush panel fields follow the load path and introduce restrained
         # roughness/material variation at close zoom.
         panel_footprint = [
-            (side * 1.58, 1.34),
-            (side * 2.56, 0.86),
-            (side * 3.18, -0.26),
-            (side * 2.12, 0.15),
+            (side * 1.48, 1.42),
+            (side * 2.34, 0.98),
+            (side * 2.92, -0.18),
+            (side * 1.96, 0.24),
         ]
         extruded_polygon(
             f"WING_COMPOSITE_PANEL_{label}",
@@ -1606,11 +1702,11 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         swept_rectangular_path(
             f"WING_TRAILING_SEAM_{label}",
             [
-                (side * 1.45, -3.50, 0.08),
-                (side * 2.55, -3.05, 0.075),
-                (side * 3.68, -2.34, 0.065),
-                (side * 4.72, -1.92, 0.055),
-                (side * 5.28, -1.63, 0.04),
+                (side * 1.36, -3.58, 0.08),
+                (side * 2.28, -3.20, 0.075),
+                (side * 3.18, -2.66, 0.065),
+                (side * 4.04, -2.14, 0.055),
+                (side * 4.55, -1.84, 0.04),
             ],
             0.030,
             0.015,
@@ -1618,6 +1714,37 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
             wing_group,
             material_role="control-surface-gap",
         )
+        # Chordwise fastener/gap paths give the broad skin believable panel
+        # breaks under moving light without introducing a texture dependency.
+        for seam_index, seam_points in enumerate(
+            [
+                [
+                    (side * 1.32, 3.16, 0.20),
+                    (side * 1.58, 1.78, 0.205),
+                    (side * 1.82, 0.18, 0.18),
+                    (side * 2.02, -1.62, 0.13),
+                    (side * 2.10, -3.02, 0.085),
+                ],
+                [
+                    (side * 2.58, 2.54, 0.16),
+                    (side * 2.78, 1.38, 0.16),
+                    (side * 3.02, 0.12, 0.14),
+                    (side * 3.28, -1.18, 0.10),
+                    (side * 3.40, -2.48, 0.07),
+                ],
+            ],
+            start=1,
+        ):
+            swept_rectangular_path(
+                f"WING_PANEL_SEAM_{label}_{seam_index:02d}",
+                seam_points,
+                0.018,
+                0.012,
+                mats["seal"],
+                wing_group,
+                material_role="flush-wing-panel-gap",
+                maintenance_detail=True,
+            )
         elevon = empty(
             f"PART_ELEVON_{label}",
             root,
@@ -1630,10 +1757,10 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
             f"ELEVON_SURFACE_{label}",
             side,
             [
-                (2.42, -2.43, -2.98, 0.060),
-                (3.70, -2.10, -2.48, 0.055),
-                (4.98, -1.70, -1.98, 0.050),
-                (5.28, -1.58, -1.82, 0.044),
+                (2.22, -2.67, -3.14, 0.060),
+                (3.12, -2.35, -2.79, 0.056),
+                (4.04, -2.00, -2.35, 0.051),
+                (4.58, -1.78, -2.03, 0.045),
             ],
             mats["shell_dark"],
             elevon,
@@ -1646,10 +1773,10 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
         swept_rectangular_path(
             f"ELEVON_HINGE_LINE_{label}",
             [
-                (side * 2.44, -2.42, 0.072),
-                (side * 3.70, -2.08, 0.066),
-                (side * 4.97, -1.68, 0.055),
-                (side * 5.27, -1.57, 0.045),
+                (side * 2.24, -2.66, 0.072),
+                (side * 3.13, -2.33, 0.066),
+                (side * 4.04, -1.98, 0.055),
+                (side * 4.57, -1.76, 0.045),
             ],
             0.035,
             0.018,
@@ -1933,6 +2060,7 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
             part_id=part_id,
             system_id="ground-operations",
             interaction="selectable",
+            assembly_state="stowed-behind-closed-door",
         )
         extruded_polygon(
             f"GEAR_DOOR_{label}",
@@ -1994,6 +2122,78 @@ def build_aircraft(reference: dict[str, object]) -> bpy.types.Object:
             maintenance_detail=True,
         )
 
+        # Modeled stowed gear is deliberately enclosed by the cruise door. It
+        # becomes legible when the browser uses its cutaway/opacity mode, but
+        # does not leave exposed wheels in the clean flight silhouette.
+        if label == "NOSE":
+            wheel_center = (0.0, 4.61, -0.29)
+            wheel_radius = 0.18
+            wheel_width = 0.115
+            strut_points = [
+                (0.0, 5.00, -0.02),
+                (0.0, 4.82, -0.14),
+                (0.0, 4.61, -0.29),
+            ]
+            brace_points = [
+                (-0.17, 4.91, -0.10),
+                (0.0, 4.70, -0.24),
+                (0.17, 4.90, -0.10),
+            ]
+        else:
+            side = -1 if label.endswith("L") else 1
+            wheel_center = (side * 0.78, -0.24, -0.26)
+            wheel_radius = 0.25
+            wheel_width = 0.15
+            strut_points = [
+                (side * 0.46, 0.18, -0.01),
+                (side * 0.61, -0.02, -0.12),
+                (side * 0.78, -0.24, -0.26),
+            ]
+            brace_points = [
+                (side * 0.44, -0.55, -0.04),
+                (side * 0.63, -0.34, -0.16),
+                (side * 0.94, -0.11, -0.12),
+            ]
+        wheel_mesh(
+            f"LANDING_GEAR_WHEEL_{label}",
+            wheel_center,
+            wheel_radius,
+            wheel_width,
+            mats["tire"],
+            mats["titanium"],
+            group,
+            part_id=part_id,
+            material_role="stowed-qualified-tire-candidate",
+            internal_component=True,
+            deployment_state="stowed",
+        )
+        swept_rectangular_path(
+            f"LANDING_GEAR_STRUT_{label}",
+            strut_points,
+            0.075 if label == "NOSE" else 0.105,
+            0.065 if label == "NOSE" else 0.085,
+            mats["hydraulic"],
+            group,
+            bevel=0.012,
+            part_id=part_id,
+            material_role="stowed-oleo-strut",
+            internal_component=True,
+            deployment_state="stowed",
+        )
+        swept_rectangular_path(
+            f"LANDING_GEAR_BRACE_{label}",
+            brace_points,
+            0.038,
+            0.032,
+            mats["titanium"],
+            group,
+            bevel=0.008,
+            part_id=part_id,
+            material_role="stowed-side-brace",
+            internal_component=True,
+            deployment_state="stowed",
+        )
+
     # Attachment-point empties let the web configurator position its effects.
     for name, position, system in [
         ("ANCHOR_NOSE", (0.0, 7.15, 0.10), "forward-sensor"),
@@ -2036,10 +2236,12 @@ def setup_preview(root: bpy.types.Object, path: Path) -> None:
         light.data.color = color
         look_at(light, Vector((0, 0.5, 0.0)))
 
-    bpy.ops.object.camera_add(location=(10.8, 13.8, 7.8))
+    # A longer-lens, pulled-back view shows the complete planform and avoids
+    # the exaggerated needle nose / clipped tail of the earlier close render.
+    bpy.ops.object.camera_add(location=(15.6, 20.8, 12.6))
     camera = bpy.context.object
-    camera.data.lens = 58
-    look_at(camera, Vector((0.0, 0.4, 0.0)))
+    camera.data.lens = 62
+    look_at(camera, Vector((0.0, 0.3, 0.0)))
     bpy.context.scene.camera = camera
 
     scene = bpy.context.scene

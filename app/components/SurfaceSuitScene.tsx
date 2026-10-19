@@ -2846,6 +2846,9 @@ export function SurfaceSuitScene({
     "loading",
   );
   const [cameraLabel, setCameraLabel] = useState("Front view");
+  const [activeCameraPreset, setActiveCameraPreset] = useState<
+    "front" | "back" | "side" | "custom"
+  >("front");
   const [exportMessage, setExportMessage] = useState("");
 
   const resolvedPalette = useMemo<SurfaceSuitPalette>(
@@ -3240,7 +3243,10 @@ export function SurfaceSuitScene({
       if (!pointerMoved) selectAt(event.clientX, event.clientY);
       pointerId = null;
       renderer.domElement.style.cursor = "grab";
-      if (pointerMoved) setCameraLabel("Custom view");
+      if (pointerMoved) {
+        setCameraLabel("Custom view");
+        setActiveCameraPreset("custom");
+      }
     };
 
     const handleWheel = (event: WheelEvent) => {
@@ -3253,6 +3259,7 @@ export function SurfaceSuitScene({
       );
       updateCamera(camera, orbit);
       setCameraLabel("Custom view");
+      setActiveCameraPreset("custom");
     };
 
     const handleContextLost = (event: Event) => {
@@ -3656,6 +3663,7 @@ export function SurfaceSuitScene({
             };
       cameraOrbitRef.current = next;
       updateCamera(camera, next);
+      setActiveCameraPreset(preset === "reset" ? "front" : preset);
       setCameraLabel(
         preset === "back"
           ? "Back view"
@@ -3681,6 +3689,7 @@ export function SurfaceSuitScene({
     const scene = sceneRef.current;
     if (renderer && scene) renderer.render(scene, camera);
     setCameraLabel(`Custom view · ${direction === "in" ? "zoomed in" : "zoomed out"}`);
+    setActiveCameraPreset("custom");
   }, []);
 
   const exportPng = useCallback(() => {
@@ -3711,11 +3720,13 @@ export function SurfaceSuitScene({
           role="group"
           aria-label="Suit camera views"
         >
+          <span className="surface-suit-scene__toolbar-label">View</span>
           <button
             type="button"
             className="surface-suit-scene__camera-button"
             onClick={() => setCameraPreset("front")}
             disabled={Boolean(webglError)}
+            aria-pressed={activeCameraPreset === "front"}
           >
             Front
           </button>
@@ -3724,6 +3735,7 @@ export function SurfaceSuitScene({
             className="surface-suit-scene__camera-button"
             onClick={() => setCameraPreset("back")}
             disabled={Boolean(webglError)}
+            aria-pressed={activeCameraPreset === "back"}
           >
             Back
           </button>
@@ -3732,6 +3744,7 @@ export function SurfaceSuitScene({
             className="surface-suit-scene__camera-button"
             onClick={() => setCameraPreset("side")}
             disabled={Boolean(webglError)}
+            aria-pressed={activeCameraPreset === "side"}
           >
             Side
           </button>
@@ -3740,6 +3753,7 @@ export function SurfaceSuitScene({
             className="surface-suit-scene__camera-button"
             onClick={() => setCameraPreset("reset")}
             disabled={Boolean(webglError)}
+            aria-label="Reset camera orientation and zoom"
           >
             Reset
           </button>

@@ -296,6 +296,8 @@
 .controlPanel,
 .inspector {
   min-height: 720px;
+  max-height: none;
+  overflow: visible;
   padding: 24px;
   border-radius: 24px;
 }
@@ -487,8 +489,9 @@
   pointer-events: none;
 }
 
-.stageToolbar > div {
+.stageToolGroup {
   display: flex;
+  align-items: center;
   gap: 4px;
   padding: 4px;
   border: 1px solid rgba(85, 73, 147, 0.15);
@@ -497,6 +500,21 @@
   box-shadow: 0 10px 28px rgba(64, 56, 122, 0.1);
   backdrop-filter: blur(15px);
   pointer-events: auto;
+}
+
+.stageToolGroup > span {
+  padding: 0 6px;
+  color: #7b7690;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.49rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.stageToolGroup > div {
+  display: flex;
+  gap: 3px;
 }
 
 .stageToolbar button {
@@ -514,6 +532,31 @@
 .stageToolbar button[aria-pressed="true"] {
   color: white;
   background: linear-gradient(110deg, #6250c9, #6fb9e6);
+}
+
+.stageInstructions {
+  position: absolute;
+  top: 78px;
+  left: 50%;
+  z-index: 6;
+  margin: 0;
+  padding: 7px 11px;
+  border: 1px solid rgba(84, 73, 149, 0.13);
+  border-radius: 999px;
+  color: #6d718d;
+  background: rgba(255, 255, 255, 0.66);
+  box-shadow: 0 9px 25px rgba(68, 61, 126, 0.07);
+  backdrop-filter: blur(14px);
+  font-size: 0.57rem;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.stageInstructions b {
+  color: #6952ca;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.49rem;
 }
 
 .scene {
@@ -578,7 +621,8 @@
   pointer-events: none;
 }
 
-.stageOverlay > div {
+.flowStatus,
+.stageSelectionStatus {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -591,6 +635,28 @@
   box-shadow: 0 10px 30px rgba(68, 61, 126, 0.1);
   backdrop-filter: blur(14px);
   pointer-events: auto;
+}
+
+.stageSelectionStatus {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  max-width: 56%;
+  border-radius: 13px;
+}
+
+.stageSelectionStatus > span {
+  color: #797a92;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.49rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stageSelectionStatus > strong {
+  overflow: hidden;
+  color: #34375d;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .liveDot {
@@ -621,16 +687,6 @@
   color: white;
   background: #6652c8;
   font-size: 0.61rem;
-}
-
-.stageOverlay p {
-  margin: 0;
-  padding: 7px 11px;
-  border-radius: 999px;
-  color: #6d718d;
-  background: rgba(255, 255, 255, 0.64);
-  font-size: 0.62rem;
-  backdrop-filter: blur(14px);
 }
 
 .flowLegend {
@@ -669,6 +725,42 @@
 .inspector {
   display: flex;
   flex-direction: column;
+}
+
+.inspectorPicker {
+  display: grid;
+  gap: 6px;
+  margin-top: 17px;
+}
+
+.inspectorPicker > span {
+  color: #716d88;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.57rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.inspectorPicker select {
+  width: 100%;
+  min-height: 41px;
+  padding: 7px 9px;
+  border: 1px solid rgba(87, 76, 155, 0.17);
+  border-radius: 9px;
+  color: #383b64;
+  background: rgba(251, 251, 255, 0.94);
+  font-size: 0.68rem;
+}
+
+.selectionCue {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-left: 3px solid #7155dc;
+  color: #6f718a;
+  background: rgba(235, 232, 251, 0.57);
+  font-size: 0.62rem;
+  line-height: 1.45;
 }
 
 .evidencePill {
@@ -1799,13 +1891,15 @@
 
   .inspector > .evidencePill,
   .inspector > h3,
-  .inspector > .inspectorLead {
+  .inspector > .inspectorLead,
+  .inspector > .inspectorPicker,
+  .inspector > .selectionCue {
     grid-column: 1;
   }
 
   .inspectorDetails {
     grid-column: 2;
-    grid-row: 2 / span 4;
+    grid-row: 2 / span 6;
     margin-top: 0;
   }
 
@@ -1841,7 +1935,12 @@
     grid-template-columns: 1fr;
   }
 
+  .aircraftStage {
+    order: -3;
+  }
+
   .controlPanel {
+    order: -2;
     min-height: 0;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1856,6 +1955,10 @@
 
   .aircraftStage {
     min-height: min(720px, 76vh);
+  }
+
+  .inspector {
+    order: -1;
   }
 
   .metricStrip {
@@ -1946,22 +2049,41 @@
     align-items: flex-start;
   }
 
-  .stageToolbar > div {
+  .stageToolGroup {
     max-width: 100%;
     flex-wrap: wrap;
   }
 
+  .stageToolGroup > div {
+    flex-wrap: wrap;
+  }
+
+  .stageInstructions {
+    top: 142px;
+    max-width: calc(100% - 32px);
+    border-radius: 12px;
+    line-height: 1.5;
+    text-align: center;
+    white-space: normal;
+  }
+
   .flowLegend {
-    top: 130px;
+    top: 198px;
   }
 
   .stageOverlay {
-    align-items: flex-end;
+    align-items: stretch;
+    flex-direction: column;
   }
 
-  .stageOverlay p {
-    max-width: 135px;
-    border-radius: 12px;
+  .flowStatus,
+  .stageSelectionStatus {
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .stageSelectionStatus {
+    width: 100%;
   }
 
   .inspector {

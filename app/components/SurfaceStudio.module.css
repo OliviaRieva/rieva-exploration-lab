@@ -3,34 +3,151 @@
   overflow: visible !important;
 }
 
-.controlLabel {
-  display: block;
-  margin: 10px 0 7px;
-  color: #5a5668;
-  font-size: 0.65rem;
+.controls {
+  max-height: none !important;
+  overflow: visible !important;
 }
 
-.motionChoices {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.controls :global(.palette-list) {
   gap: 4px;
 }
 
-.motionChoices button {
-  min-height: 36px;
-  padding: 5px 3px;
-  border: 1px solid rgba(64, 53, 111, 0.14);
-  border-radius: 8px;
-  color: #5b566b;
-  background: rgba(246, 246, 250, 0.9);
-  cursor: pointer;
-  font-size: 0.58rem;
+.controls :global(.palette-list button) {
+  grid-template-columns: 40px 1fr;
+  min-height: 50px;
+  padding: 6px;
 }
 
-.motionChoices button[aria-pressed="true"] {
-  border-color: rgba(107, 80, 219, 0.38);
+.controls :global(.palette-swatches) {
+  height: 34px;
+}
+
+.stageColumn {
+  min-width: 0;
+}
+
+.stageCommandDeck {
+  display: grid;
+  grid-template-columns: 0.82fr 1fr 1.28fr;
+  gap: 7px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(64, 53, 111, 0.14);
+  background:
+    linear-gradient(120deg, rgba(246, 243, 255, 0.9), rgba(239, 249, 255, 0.82)),
+    #ffffff;
+}
+
+.commandGroup {
+  min-width: 0;
+}
+
+.commandGroup > span {
+  display: block;
+  margin: 0 0 5px 3px;
+  color: #756f84;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.commandGroup > div {
+  display: flex;
+  min-width: 0;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid rgba(64, 53, 111, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.commandGroup button {
+  min-width: 0;
+  min-height: 32px;
+  flex: 1;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 7px;
+  color: #69647a;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.54rem;
+  white-space: nowrap;
+}
+
+.commandGroup button[aria-pressed="true"] {
   color: #ffffff;
-  background: linear-gradient(135deg, #765add, #4a8ee3);
+  background: linear-gradient(125deg, #7056d6, #4b9be0);
+  box-shadow: 0 5px 13px rgba(89, 67, 180, 0.17);
+}
+
+.commandGroup button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.stageGuide {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  border-bottom: 1px solid rgba(64, 53, 111, 0.12);
+  background: rgba(64, 53, 111, 0.1);
+}
+
+.stageGuide span {
+  min-width: 0;
+  padding: 8px 11px;
+  color: #69657a;
+  background: rgba(255, 255, 255, 0.88);
+  font-size: 0.53rem;
+  line-height: 1.35;
+}
+
+.stageGuide b {
+  margin-right: 5px;
+  color: #6b50db;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.48rem;
+}
+
+.stageSelection {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 43px;
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(64, 53, 111, 0.13);
+  color: #5c586c;
+  background: rgba(249, 248, 253, 0.94);
+}
+
+.stageSelection span {
+  color: #7a7487;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.49rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stageSelection strong {
+  overflow: hidden;
+  color: #29243d;
+  font-size: 0.65rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stageSelection button {
+  min-height: 29px;
+  padding: 5px 9px;
+  border: 1px solid rgba(107, 80, 219, 0.25);
+  border-radius: 999px;
+  color: #5a42ba;
+  background: rgba(240, 236, 255, 0.84);
+  cursor: pointer;
+  font-size: 0.54rem;
 }
 
 .testRoom {
@@ -167,12 +284,50 @@
 }
 
 @media (max-width: 1180px) {
+  .stageCommandDeck {
+    grid-template-columns: 1fr 1.2fr;
+  }
+
+  .commandGroup:last-child {
+    grid-column: 1 / -1;
+  }
+
   .testChoices {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
+@media (max-width: 980px) {
+  .stageColumn {
+    order: -2;
+  }
+
+  .controls {
+    order: -1;
+  }
+}
+
 @media (max-width: 680px) {
+  .stageCommandDeck {
+    grid-template-columns: 1fr;
+  }
+
+  .commandGroup:last-child {
+    grid-column: auto;
+  }
+
+  .stageGuide {
+    grid-template-columns: 1fr;
+  }
+
+  .stageSelection {
+    grid-template-columns: 1fr auto;
+  }
+
+  .stageSelection span {
+    grid-column: 1 / -1;
+  }
+
   .testRoomHeading {
     display: grid;
     align-items: start;

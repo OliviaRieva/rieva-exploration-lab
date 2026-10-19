@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   aircraftParts,
   contactModuleDetails,
@@ -36,6 +36,7 @@ export interface ContactFlightLabProps {
 }
 
 const STORAGE_KEY = "rieva-contact-flight-configuration-v1";
+const WORKSPACE_STORAGE_KEY = "rieva-contact-flight-workspace-v1";
 
 const evidenceLabels: Record<EvidenceLevel, string> = {
   "operational heritage": "Operational heritage",
@@ -101,11 +102,99 @@ export function ContactFlightLab({ active = false }: ContactFlightLabProps) {
   const [selectedEngineStage, setSelectedEngineStage] = useState("inlet");
   const [researchTrack, setResearchTrack] = useState<"life-search" | "flight-research">("life-search");
   const [persistenceMessage, setPersistenceMessage] = useState("Configuration is local to this browser.");
+  const [workspaceReady, setWorkspaceReady] = useState(false);
+  const inspectorRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const serialized = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+        if (!serialized) return;
+        const saved = JSON.parse(serialized) as Record<string, unknown>;
+        if (saved.configuration) {
+          setConfiguration(
+            decodeContactFlightConfiguration(JSON.stringify(saved.configuration)),
+          );
+        }
+        if (
+          typeof saved.selectedPartId === "string" &&
+          (aircraftParts.some((part) => part.id === saved.selectedPartId) ||
+            contactModuleDetails.some((module) => module.id === saved.selectedPartId))
+        ) {
+          setSelectedPartId(saved.selectedPartId);
+        }
+        if (
+          saved.assemblyMode === "external" ||
+          saved.assemblyMode === "cutaway" ||
+          saved.assemblyMode === "exploded"
+        ) {
+          setAssemblyMode(saved.assemblyMode);
+        }
+        if (
+          saved.cameraPreset === "perspective" ||
+          saved.cameraPreset === "top" ||
+          saved.cameraPreset === "side" ||
+          saved.cameraPreset === "front"
+        ) {
+          setCameraPreset(saved.cameraPreset);
+          setCameraRequestKey((value) => value + 1);
+        }
+        if (typeof saved.airflowRunning === "boolean") {
+          setAirflowRunning(saved.airflowRunning);
+        }
+        if (
+          typeof saved.selectedEngineStage === "string" &&
+          engineStages.some((stage) => stage.id === saved.selectedEngineStage)
+        ) {
+          setSelectedEngineStage(saved.selectedEngineStage);
+        }
+        if (saved.researchTrack === "life-search" || saved.researchTrack === "flight-research") {
+          setResearchTrack(saved.researchTrack);
+        }
+      } catch {
+        // A corrupt snapshot should never prevent the documented baseline loading.
+      } finally {
+        setWorkspaceReady(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!workspaceReady) return;
+    try {
+      window.localStorage.setItem(
+        WORKSPACE_STORAGE_KEY,
+        JSON.stringify({
+          version: 1,
+          configuration,
+          selectedPartId,
+          assemblyMode,
+          cameraPreset,
+          airflowRunning,
+          selectedEngineStage,
+          researchTrack,
+        }),
+      );
+    } catch {
+      // Manual JSON export remains available when browser storage is blocked.
+    }
+  }, [
+    airflowRunning,
+    assemblyMode,
+    cameraPreset,
+    configuration,
+    researchTrack,
+    selectedEngineStage,
+    selectedPartId,
+    workspaceReady,
+  ]);
 
   const result = useMemo(() => evaluateContactFlight(configuration), [configuration]);
   const scenario = encounterScenarios.find((item) => item.id === configuration.scenario)!;
   const selectedPart = aircraftParts.find((part) => part.id === selectedPartId);
   const selectedModule = contactModuleDetails.find((module) => module.id === selectedPartId);
+  const selectedComponentName = selectedModule?.name ?? selectedPart?.name ?? "No component selected";
   const selectedStage = engineStages.find((stage) => stage.id === selectedEngineStage)!;
   const filteredResearch = researchItems.filter((item) => item.track === researchTrack);
 
@@ -130,6 +219,17 @@ export function ContactFlightLab({ active = false }: ContactFlightLabProps) {
   const requestCamera = (preset: AircraftCameraPreset) => {
     setCameraPreset(preset);
     setCameraRequestKey((value) => value + 1);
+  };
+
+  const selectInspectablePart = (partId: string) => {
+    setSelectedPartId(partId);
+    const catalogModule = CONTACT_MODULES.find((candidate) => candidate.id === partId);
+    if (catalogModule && !catalogModule.visible) setAssemblyMode("cutaway");
+  };
+
+  const focusInspector = () => {
+    inspectorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    inspectorRef.current?.focus({ preventScroll: true });
   };
 
   const saveConfiguration = () => {
@@ -342,47 +442,65 @@ export function ContactFlightLab({ active = false }: ContactFlightLabProps) {
 
           <article className={styles.aircraftStage} id="contact-aircraft-stage">
             <div className={styles.stageToolbar}>
-              <div aria-label="Aircraft view mode">
-                {(["external", "cutaway", "exploded"] as const).map((mode) => (
-                  <button
-                    type="button"
-                    key={mode}
-                    aria-pressed={assemblyMode === mode}
-                    onClick={() => setAssemblyMode(mode)}
-                  >
-                    {mode === "external" ? "Skin" : mode === "cutaway" ? "Cutaway" : "Exploded"}
-                  </button>
-                ))}
+              <div className={styles.stageToolGroup}>
+                <span>Assembly</span>
+                <div role="group" aria-label="Aircraft assembly view">
+                  {(["external", "cutaway", "exploded"] as const).map((mode) => (
+                    <button
+                      type="button"
+                      key={mode}
+                      aria-pressed={assemblyMode === mode}
+                      onClick={() => setAssemblyMode(mode)}
+                    >
+                      {mode === "external" ? "Skin" : mode === "cutaway" ? "Cutaway" : "Exploded"}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div aria-label="Camera views">
-                {(["perspective", "top", "side", "front"] as const).map((preset) => (
-                  <button type="button" key={preset} onClick={() => requestCamera(preset)}>
-                    {preset === "perspective" ? "Reset" : preset}
-                  </button>
-                ))}
+              <div className={styles.stageToolGroup}>
+                <span>View</span>
+                <div role="group" aria-label="Aircraft camera views">
+                  {(["perspective", "top", "side", "front"] as const).map((preset) => (
+                    <button
+                      type="button"
+                      key={preset}
+                      aria-pressed={cameraPreset === preset}
+                      onClick={() => requestCamera(preset)}
+                    >
+                      {preset === "perspective" ? "Reset" : preset}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
+            <p className={styles.stageInstructions}>
+              <b>01</b> drag to orbit · <b>02</b> wheel or pinch to zoom · <b>03</b> click a lit part
+            </p>
             <AircraftScene
               className={styles.scene}
               active={active}
               configuration={configuration}
               result={result}
               selectedPartId={selectedPartId}
-              onSelectPart={setSelectedPartId}
+              onSelectPart={selectInspectablePart}
               cameraPreset={cameraPreset}
               cameraRequestKey={cameraRequestKey}
               assemblyMode={assemblyMode}
               airflowRunning={airflowRunning}
             />
             <div className={styles.stageOverlay}>
-              <div>
+              <div className={styles.flowStatus}>
                 <span className={styles.liveDot} data-running={airflowRunning} />
                 <strong>{airflowRunning ? "FLOW RUNNING" : "FLOW PAUSED"}</strong>
                 <button type="button" onClick={() => setAirflowRunning((value) => !value)}>
                   {airflowRunning ? "Pause" : "Play"}
                 </button>
               </div>
-              <p>Drag · pinch/scroll · click a named component</p>
+              <div className={styles.stageSelectionStatus} aria-live="polite">
+                <span>Selected</span>
+                <strong>{selectedComponentName}</strong>
+                <button type="button" onClick={focusInspector}>Details</button>
+              </div>
             </div>
             <div className={styles.flowLegend} aria-label="Visualization legend">
               <span><i data-color="cyan" /> lower-pressure cue</span>
@@ -391,11 +509,38 @@ export function ContactFlightLab({ active = false }: ContactFlightLabProps) {
             </div>
           </article>
 
-          <aside className={styles.inspector} aria-live="polite">
+          <aside
+            ref={inspectorRef}
+            className={styles.inspector}
+            id="contact-component-inspector"
+            tabIndex={-1}
+            aria-labelledby="contact-inspector-title"
+          >
             <div className={styles.panelHeading}>
-              <span>Component inspector</span>
+              <span id="contact-inspector-title">Component inspector</span>
               <strong>{selectedModule ? "MODULE" : "AIRFRAME"}</strong>
             </div>
+            <label className={styles.inspectorPicker}>
+              <span>Inspect a named system</span>
+              <select
+                value={selectedPartId}
+                onChange={(event) => selectInspectablePart(event.target.value)}
+              >
+                <optgroup label="Airframe and propulsion">
+                  {aircraftParts.map((part) => (
+                    <option key={part.id} value={part.id}>{part.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="First-contact resilience modules">
+                  {contactModuleDetails.map((module) => (
+                    <option key={module.id} value={module.id}>{module.name}</option>
+                  ))}
+                </optgroup>
+              </select>
+            </label>
+            <p className={styles.selectionCue} aria-live="polite">
+              The selected mesh is highlighted in the 3D stage; this card updates with its evidence and tradeoffs.
+            </p>
             {selectedModule ? (
               <>
                 <EvidencePill level={selectedModule.evidence} />
@@ -427,7 +572,7 @@ export function ContactFlightLab({ active = false }: ContactFlightLabProps) {
                   type="button"
                   key={part.id}
                   aria-pressed={selectedPartId === part.id}
-                  onClick={() => setSelectedPartId(part.id)}
+                  onClick={() => selectInspectablePart(part.id)}
                 >
                   {part.short}
                 </button>

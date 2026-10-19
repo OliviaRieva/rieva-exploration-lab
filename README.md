@@ -58,10 +58,10 @@ npm run lint
 
 ### Surface Studio — Missionwear
 
-- Three visibly distinct original concepts: lunar **MAX** with faceted dust guards and shadow-work lighting, Mars **MALTE** with asymmetric geology and abrasion panels, and the lighter open-head Earth-training **BASTIAN** loading garment. BASTIAN deliberately omits EVA pressure hardware.
+- Three visibly distinct original concepts: lunar **MAX** with faceted dust guards and shadow-work lighting, signal-orange Mars **MALTE** with continuous soft-goods tailoring, graphite articulation, and asymmetric geology panels, and the lighter open-head Earth-training **BASTIAN** loading garment. BASTIAN deliberately omits EVA pressure hardware.
 - A real Three.js model loaded from a Blender-authored glTF asset. Its human silhouette is derived from Blender Studio’s CC0 Human Base Meshes v1.4.1, while the garments, helmet, named equipment, seams, joints, boots, backpack, staff, cat-ear pods, dust module, haptics, and assistive structures are original RIEVA geometry. A lightweight procedural fallback remains available if the asset cannot load.
 - Mouse/touch orbit controls, wheel zoom, camera presets, clickable parts, exploded assembly, layered cutaway, detachable helmet in assembly mode, body-proportion presets, and explicitly illustrative walking, running, and jumping.
-- Pearl/silver, white/champagne, and obsidian/gold palettes with visible thermal and optical caveats.
+- Pearl/silver, white/champagne, signal-orange/graphite, and obsidian/gold palettes with visible thermal and optical caveats.
 - Editable outer tailoring and mission accessories without implying that pockets or pants replace pressure architecture.
 - Local save/load, validated JSON export, and canvas PNG export. No account or backend is involved.
 - Moon, Mars, Earth-training, and hypothetical higher-gravity rules using stated mass, gravity, and accessory-power assumptions.
@@ -74,7 +74,7 @@ The suit model is an educational integration concept, not qualified hardware. Ha
 
 ### Contact Flight
 
-- An original, unarmed **AERIS-X** research aircraft authored in Blender and exported as an optimized glTF asset: 63 named meshes, 3,760 vertices, and 6,772 triangles.
+- An original, unarmed **AERIS-X** research aircraft authored in Blender and exported as an optimized glTF asset: 170 named meshes, 11,642 vertices, and 20,124 triangles. Its R3 form uses a long faceted forebody, tighter cranked planform, blended inlets, canted twin tails, panel seams, and inspectable stowed landing gear.
 - Mouse/touch rotation, wheel or pinch zoom, front/top/side/reset cameras, clickable named parts, external/cutaway/exploded views, and a visible fallback if WebGL or the asset fails.
 - A live wind-tunnel view with qualitative airflow streaks, pressure-wash overlays, and supersonic Mach-angle cues. These are explicitly not presented as CFD.
 - Editable altitude, true airspeed, angle of attack, wing state, flow view, and unknown-event exercise inputs.

@@ -2841,8 +2841,19 @@ h3 {
 
 .surface-suit-scene__camera-controls {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.surface-suit-scene__toolbar-label {
+  margin: 0 5px 0 2px;
+  color: #766f84;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .surface-suit-scene__camera-button,
@@ -2861,6 +2872,13 @@ h3 {
 .surface-suit-scene__export-button:hover {
   border-color: var(--surface-line-strong);
   background: #ffffff;
+}
+
+.surface-suit-scene__camera-button[aria-pressed="true"] {
+  border-color: transparent;
+  color: #ffffff;
+  background: linear-gradient(135deg, #765add, #4a8ee3);
+  box-shadow: 0 5px 14px rgba(85, 65, 173, 0.18);
 }
 
 .surface-suit-scene__export-button {

@@ -32,7 +32,7 @@ const vectorSupportedAccessorySet = new Set<keyof StudioAccessories>(
 export interface StudioConfiguration {
   version: 1;
   conceptId: "selene" | "areo" | "vector";
-  paletteId: "pearl" | "champagne" | "obsidian";
+  paletteId: "pearl" | "champagne" | "signal" | "obsidian";
   pantsStyle: "contour" | "field" | "mobility";
   torsoStyle: TorsoStyleId;
   bootStyle: BootStyleId;
@@ -132,7 +132,7 @@ export function normalizeStudioConfiguration(
   if (!value || typeof value !== "object") return structuredClone(DEFAULT_STUDIO_CONFIGURATION);
   const candidate = value as Partial<StudioConfiguration>;
   const conceptIds = new Set(["selene", "areo", "vector"]);
-  const paletteIds = new Set(["pearl", "champagne", "obsidian"]);
+  const paletteIds = new Set(["pearl", "champagne", "signal", "obsidian"]);
   const pantsIds = new Set(["contour", "field", "mobility"]);
   const torsoIds = new Set(["streamline", "field-rig", "adaptive"]);
   const bootIds = new Set(["traverse", "rock", "stability"]);

@@ -37,7 +37,7 @@ export interface EquipmentItem {
 }
 
 export interface SuitPalette {
-  id: "pearl" | "champagne" | "obsidian";
+  id: "pearl" | "champagne" | "signal" | "obsidian";
   name: string;
   description: string;
   base: string;
@@ -57,6 +57,15 @@ export const references: ResearchReference[] = [
     publicationDate: "Published 4 October 2019; updated 30 August 2023",
     verifiedDate: "30 September 2026",
     note: "Operational overview of pressure, cooling, communications, gloves, helmet, thermal protection, and portable life support functions.",
+  },
+  {
+    id: "nasa-orion-survival",
+    organization: "NASA",
+    title: "Orion suit equipped to expect the unexpected",
+    url: "https://www.nasa.gov/missions/artemis/orion-suit-equipped-to-expect-the-unexpected-on-artemis-missions/",
+    publicationDate: "15 October 2019; page updated 26 July 2023",
+    verifiedDate: "19 October 2026",
+    note: "Primary-source context for high-visibility orange launch/entry soft goods, custom fit, restraint, cooling, gloves, boots, and survival hardware. NASA explicitly distinguishes this inside-spacecraft crew-survival garment from a self-contained surface EVA suit.",
   },
   {
     id: "axiom-prada-lcg",
@@ -233,7 +242,7 @@ export const equipmentCatalog: EquipmentItem[] = [
     support: "Inner garments are part of operational suit systems, but do not provide vacuum protection alone.",
     drawbacks: "Seams, compression, microbial control, laundering, and compatibility with sensors matter.",
     integration: "Must not be presented as a pressure suit; it sits inside the pressure and life-support system.",
-    sourceIds: ["nasa-suit-basics", "axiom-prada-lcg"],
+    sourceIds: ["nasa-suit-basics", "nasa-orion-survival", "axiom-prada-lcg"],
   },
   {
     id: "cooling-garment",
@@ -250,7 +259,7 @@ export const equipmentCatalog: EquipmentItem[] = [
     support: "Liquid cooling has operational heritage; the cited 2026 collaboration concerns a next-generation inner garment.",
     drawbacks: "Leaks, kinks, local pressure, connectors, pump power, cleaning, and fit variation require testing.",
     integration: "Connects to ventilation and heat rejection; fashion collaboration alone is not performance evidence.",
-    sourceIds: ["nasa-suit-basics", "axiom-prada-lcg"],
+    sourceIds: ["nasa-suit-basics", "nasa-orion-survival", "axiom-prada-lcg"],
   },
   {
     id: "pressure-retention",
@@ -264,7 +273,7 @@ export const equipmentCatalog: EquipmentItem[] = [
     support: "Gas-retaining bladders are established in pressure-suit architecture.",
     drawbacks: "Flex cracking, pinholes, seam leakage, permeability, and repairability limit material choices.",
     integration: "Cannot carry all pressure loads alone; it works with structural restraint and sealed interfaces.",
-    sourceIds: ["nasa-suit-basics"],
+    sourceIds: ["nasa-suit-basics", "nasa-orion-survival"],
   },
   {
     id: "restraint-layer",
@@ -278,7 +287,7 @@ export const equipmentCatalog: EquipmentItem[] = [
     support: "Pressure restraint is a fundamental operational suit function.",
     drawbacks: "Load paths can restrict motion, create pressure points, and concentrate fatigue at stitching or joints.",
     integration: "Patterning, seams, bearings, bladder compatibility, and human fit must be validated together.",
-    sourceIds: ["nasa-suit-basics", "mit-biosuit", "mit-biosuit-paper"],
+    sourceIds: ["nasa-suit-basics", "nasa-orion-survival", "mit-biosuit", "mit-biosuit-paper"],
   },
   {
     id: "thermal-outer",
@@ -291,11 +300,12 @@ export const equipmentCatalog: EquipmentItem[] = [
     materials: [
       { name: "Aluminized polymer-film insulation candidate", role: "Reduces radiative heat transfer within a multilayer stack", qualification },
       { name: "High-temperature, abrasion-resistant woven outer fabric", role: "Sacrificial mechanical protection", qualification },
+      { name: "Pigmented or solution-dyed high-visibility textile candidate", role: "Crew identification and visual contrast; not thermal protection by color alone", qualification },
     ],
-    support: "Layered thermal micrometeoroid garments have operational heritage; exact recipes are mission-specific.",
+    support: "Layered thermal micrometeoroid garments have operational heritage; NASA documents orange crew-survival covers for recovery visibility, but that launch/entry use does not qualify an orange surface-EVA layer.",
     drawbacks: "Bulk, trapped dust, wear, stiffness, contamination, and changing optical properties complicate qualification.",
     integration: "Black exterior areas need thermal assessment. Display color is not a thermal-performance specification.",
-    sourceIds: ["nasa-suit-basics"],
+    sourceIds: ["nasa-suit-basics", "nasa-orion-survival"],
   },
   {
     id: "torso-assembly",
@@ -561,6 +571,17 @@ export const palettes: SuitPalette[] = [
     thermalNote: "The gold tone is a cosmetic candidate finish. Real visor thin films need validated spectral and durability specifications.",
   },
   {
+    id: "signal",
+    name: "Signal orange / graphite",
+    description: "High-visibility woven soft goods with graphite interfaces and cool metallic hardware.",
+    base: "#e8793e",
+    secondary: "#49535d",
+    accent: "#dce6eb",
+    dark: "#171b20",
+    visor: "#88bfd0",
+    thermalNote: "The orange treatment is inspired by high-visibility crew-survival garments. Display color alone does not qualify an EVA outer layer; absorptance, emittance, contamination, and the complete thermal stack still require mission-specific testing.",
+  },
+  {
     id: "obsidian",
     name: "Obsidian / gold",
     description: "A dramatic dark exhibition study with warm hardware accents.",
@@ -590,7 +611,7 @@ export const suitConcepts = [
     subtitle: "Mars geology system",
     mission: "Mars",
     garmentClass: "Surface EVA concept",
-    paletteId: "champagne",
+    paletteId: "signal",
     description: "A pressure-protected geology concept with abrasion panels, sampling attachments, and restrained warm-metallic accents.",
     equipmentMassKg: 82,
   },

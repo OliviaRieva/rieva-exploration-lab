@@ -26,12 +26,38 @@ test("Blender missionwear contains all concepts and interaction metadata", async
     assert.ok(names.has(concept), `${concept} root is present`);
   }
 
+  const conceptRoots = nodes.filter((node) => node.extras?.design_revision);
+  assert.equal(conceptRoots.length, 3, "all three concept roots carry revision metadata");
+  for (const root of conceptRoots) {
+    assert.equal(
+      root.extras.design_revision,
+      "softgoods-tailoring-v3",
+      `${root.name} identifies the current authored revision`,
+    );
+  }
+  assert.match(
+    nodes.find((node) => node.name === "CONCEPT_BASTIAN")?.extras?.garment_class ?? "",
+    /not a vacuum pressure suit/i,
+    "the Earth-training garment is not presented as EVA equipment",
+  );
+
   const partNodes = nodes.filter((node) => node.extras?.part_id);
   const materialNodes = nodes.filter((node) => node.extras?.materialRole);
   const rigNodes = nodes.filter((node) => node.extras?.rig_role);
+  const constructionNodes = nodes.filter((node) => node.extras?.construction);
   assert.ok(partNodes.length >= 80, "named selectable equipment nodes are exported");
   assert.ok(materialNodes.length >= 200, "material-role metadata is exported");
   assert.ok(rigNodes.length >= 20, "articulation pivots are exported");
+  assert.ok(constructionNodes.length >= 100, "soft-goods construction metadata is exported");
+
+  for (const authoredDetail of [
+    "MAX_external_crown_equipment_rail",
+    "MALTE_pressure_service_manifold",
+    "MALTE_rounded_visor_retention_frame",
+    "BASTIAN_earth_training_recovery_yoke",
+  ]) {
+    assert.ok(names.has(authoredDetail), `${authoredDetail} is present`);
+  }
 
   const partIds = new Set(partNodes.map((node) => node.extras.part_id));
   for (const required of [

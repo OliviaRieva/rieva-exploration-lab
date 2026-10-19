@@ -6,6 +6,7 @@ import {
   Suspense,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ErrorInfo,
   type ReactNode,
@@ -47,6 +48,7 @@ const SurfaceSuitScene = lazy(() =>
 
 const STORAGE_KEY = "rieva-surface-studio-v1";
 const LEGACY_STORAGE_KEY = "rievastra-surface-studio-v1";
+const WORKSPACE_STORAGE_KEY = "rieva-surface-studio-workspace-v1";
 
 interface SceneBoundaryProps {
   children: ReactNode;
@@ -186,12 +188,72 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
   const [testMode, setTestMode] = useState<SurfaceSuitTestMode>("none");
   const [notice, setNotice] = useState("");
   const [sceneActivated, setSceneActivated] = useState(active);
+  const [workspaceReady, setWorkspaceReady] = useState(false);
+  const inspectorRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!active || sceneActivated) return;
     const timer = window.setTimeout(() => setSceneActivated(true), 0);
     return () => window.clearTimeout(timer);
   }, [active, sceneActivated]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const serialized = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+        if (!serialized) return;
+        const saved = JSON.parse(serialized) as Record<string, unknown>;
+        if (saved.configuration) {
+          setConfig(decodeStudioConfiguration(JSON.stringify(saved.configuration)));
+        }
+        if (
+          typeof saved.selectedPartId === "string" &&
+          equipmentCatalog.some((item) => item.id === saved.selectedPartId)
+        ) {
+          setSelectedPartId(saved.selectedPartId);
+        }
+        if (typeof saved.exploded === "boolean") setExploded(saved.exploded);
+        if (typeof saved.cutaway === "boolean") setCutaway(saved.cutaway);
+        if (
+          typeof saved.motionMode === "string" &&
+          ["neutral", "walk", "run", "jump"].includes(saved.motionMode)
+        ) {
+          setMotionMode(saved.motionMode as SurfaceSuitMotionMode);
+        }
+        if (
+          typeof saved.testMode === "string" &&
+          TEST_MODES.some((test) => test.id === saved.testMode)
+        ) {
+          setTestMode(saved.testMode as SurfaceSuitTestMode);
+        }
+      } catch {
+        // A corrupt workspace snapshot should never block the default studio.
+      } finally {
+        setWorkspaceReady(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!workspaceReady) return;
+    try {
+      window.localStorage.setItem(
+        WORKSPACE_STORAGE_KEY,
+        JSON.stringify({
+          version: 1,
+          configuration: config,
+          selectedPartId,
+          exploded,
+          cutaway,
+          motionMode,
+          testMode,
+        }),
+      );
+    } catch {
+      // Manual JSON export remains available when browser storage is blocked.
+    }
+  }, [config, cutaway, exploded, motionMode, selectedPartId, testMode, workspaceReady]);
 
   const concept =
     suitConcepts.find((candidate) => candidate.id === config.conceptId) ??
@@ -310,6 +372,11 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
     setNotice("Studio reset to MAX defaults.");
   };
 
+  const focusInspector = () => {
+    inspectorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    inspectorRef.current?.focus({ preventScroll: true });
+  };
+
   return (
     <div className="surface-studio-shell">
       <section className="surface-hero" aria-labelledby="surface-title">
@@ -390,7 +457,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
         </div>
 
         <div className="studio-grid">
-          <aside className="studio-controls" aria-label="Suit configuration controls">
+          <aside className={`studio-controls ${styles.controls}`} aria-label="Suit configuration controls">
             <fieldset>
               <legend>Palette</legend>
               <div className="palette-list">
@@ -503,73 +570,6 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
             </fieldset>
 
             <fieldset>
-              <legend>Mode and layers</legend>
-              <div className="segmented-control" role="group" aria-label="Suit interaction mode">
-                <button
-                  type="button"
-                  aria-pressed={config.mode === "mission"}
-                  disabled={config.conceptId === "vector"}
-                  onClick={() => updateConfig((current) => ({ ...current, mode: "mission", helmetAttached: true }))}
-                >EVA mission mode</button>
-                <button
-                  type="button"
-                  aria-pressed={config.mode === "assembly"}
-                  onClick={() => updateConfig((current) => ({ ...current, mode: "assembly" }))}
-                >Display / assembly</button>
-              </div>
-              {config.conceptId === "vector" ? (
-                <p className="control-caveat">
-                  BASTIAN remains in research-display mode because it has no sealed
-                  pressure architecture or portable life-support system.
-                </p>
-              ) : null}
-              <label className="surface-switch">
-                <input
-                  type="checkbox"
-                  checked={config.conceptId === "vector" ? false : config.helmetAttached}
-                  disabled={config.mode === "mission" || config.conceptId === "vector"}
-                  onChange={(event) => {
-                    const helmetAttached = event.currentTarget.checked;
-                    updateConfig((current) => ({
-                      ...current,
-                      helmetAttached,
-                    }));
-                  }}
-                />
-                <span>
-                  {config.conceptId === "vector"
-                    ? "No pressure helmet — Earth research garment"
-                    : "Helmet attached"}
-                </span>
-              </label>
-              <label className="surface-switch">
-                <input type="checkbox" checked={exploded} onChange={(event) => setExploded(event.currentTarget.checked)} />
-                <span>Exploded equipment view</span>
-              </label>
-              <label className="surface-switch">
-                <input type="checkbox" checked={cutaway} onChange={(event) => setCutaway(event.currentTarget.checked)} />
-                <span>Layered torso cutaway</span>
-              </label>
-              <span className={styles.controlLabel}>Illustrative motion</span>
-              <div className={styles.motionChoices} role="group" aria-label="Illustrative suit motion">
-                {(["neutral", "walk", "run", "jump"] as SurfaceSuitMotionMode[]).map((mode) => (
-                  <button
-                    type="button"
-                    key={mode}
-                    aria-pressed={motionMode === mode}
-                    onClick={() => setMotionMode(mode)}
-                  >
-                    {mode === "neutral" ? "Still" : mode[0].toUpperCase() + mode.slice(1)}
-                  </button>
-                ))}
-              </div>
-              <p className="control-caveat">
-                Walk, run, and jump are visual communication aids—not biomechanics,
-                mobility predictions, or evidence that a pressurized suit supports the motion.
-              </p>
-            </fieldset>
-
-            <fieldset>
               <legend>Mission accessories</legend>
               {(
                 [
@@ -613,7 +613,7 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
             <p className="studio-notice" aria-live="polite">{notice}</p>
           </aside>
 
-          <div className="studio-stage-column">
+          <div className={`studio-stage-column ${styles.stageColumn}`}>
             <div className="studio-stage-meta">
               <div>
                 <span>{concept.name}</span>
@@ -624,6 +624,97 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
                   ? "Open-head Earth garment · no pressure enclosure or PLSS"
                   : "Blender-authored surface-EVA concept · pressure architecture shown"}
               </p>
+            </div>
+            <div className={styles.stageCommandDeck} aria-label="Model stage controls">
+              <div className={styles.commandGroup}>
+                <span>Assembly</span>
+                <div role="group" aria-label="Suit interaction mode">
+                  <button
+                    type="button"
+                    aria-pressed={config.mode === "mission"}
+                    disabled={config.conceptId === "vector"}
+                    onClick={() =>
+                      updateConfig((current) => ({
+                        ...current,
+                        mode: "mission",
+                        helmetAttached: true,
+                      }))
+                    }
+                  >
+                    EVA mode
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={config.mode === "assembly"}
+                    onClick={() =>
+                      updateConfig((current) => ({ ...current, mode: "assembly" }))
+                    }
+                  >
+                    Assembly
+                  </button>
+                </div>
+              </div>
+              <div className={styles.commandGroup}>
+                <span>Layers</span>
+                <div role="group" aria-label="Suit layer views">
+                  <button
+                    type="button"
+                    aria-pressed={config.helmetAttached}
+                    disabled={config.mode === "mission" || config.conceptId === "vector"}
+                    onClick={() =>
+                      updateConfig((current) => ({
+                        ...current,
+                        helmetAttached: !current.helmetAttached,
+                      }))
+                    }
+                  >
+                    {config.conceptId === "vector"
+                      ? "No helmet"
+                      : config.helmetAttached
+                        ? "Helmet on"
+                        : "Helmet off"}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={cutaway}
+                    onClick={() => setCutaway((value) => !value)}
+                  >
+                    Cutaway
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={exploded}
+                    onClick={() => setExploded((value) => !value)}
+                  >
+                    Explode
+                  </button>
+                </div>
+              </div>
+              <div className={styles.commandGroup}>
+                <span>Illustrative motion</span>
+                <div role="group" aria-label="Illustrative suit motion">
+                  {(["neutral", "walk", "run", "jump"] as SurfaceSuitMotionMode[]).map((mode) => (
+                    <button
+                      type="button"
+                      key={mode}
+                      aria-pressed={motionMode === mode}
+                      onClick={() => setMotionMode(mode)}
+                    >
+                      {mode === "neutral" ? "Still" : mode[0].toUpperCase() + mode.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className={styles.stageGuide} aria-label="How to use the suit model">
+              <span><b>01</b> Drag to rotate · wheel or pinch to zoom</span>
+              <span><b>02</b> Click a named garment part</span>
+              <span><b>03</b> Read the synchronized evidence card</span>
+            </div>
+            <div className={styles.stageSelection} aria-live="polite">
+              <span>Selected component</span>
+              <strong>{selectedItem.name}</strong>
+              <button type="button" onClick={focusInspector}>Open details</button>
             </div>
             <div className={styles.testRoom} aria-labelledby="surface-test-room-title">
               <div className={styles.testRoomHeading}>
@@ -722,7 +813,13 @@ export function SurfaceStudio({ active = false }: SurfaceStudioProps) {
             </div>
           </div>
 
-          <aside className={`equipment-inspector ${styles.inspector}`} aria-labelledby="inspector-title">
+          <aside
+            ref={inspectorRef}
+            className={`equipment-inspector ${styles.inspector}`}
+            id="surface-equipment-inspector"
+            tabIndex={-1}
+            aria-labelledby="inspector-title"
+          >
             <div className="inspector-heading">
               <p className="surface-kicker">Equipment inspector</p>
               <h3 id="inspector-title">{selectedItem.name}</h3>

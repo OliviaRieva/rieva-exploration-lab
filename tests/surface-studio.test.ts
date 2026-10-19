@@ -18,6 +18,15 @@ test("configuration JSON round-trips through the validated persistence format", 
   assert.deepEqual(decodeStudioConfiguration(encodeStudioConfiguration(configured)), configured);
 });
 
+test("signal-orange palette persists as an explicit material choice", () => {
+  const configured = normalizeStudioConfiguration({
+    ...DEFAULT_STUDIO_CONFIGURATION,
+    paletteId: "signal",
+  });
+  assert.equal(configured.paletteId, "signal");
+  assert.equal(decodeStudioConfiguration(encodeStudioConfiguration(configured)).paletteId, "signal");
+});
+
 test("mission mode keeps the helmet attached", () => {
   const config = normalizeStudioConfiguration({
     ...DEFAULT_STUDIO_CONFIGURATION,

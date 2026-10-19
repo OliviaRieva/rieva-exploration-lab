@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { Box3, Vector3 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const assetUrl = new URL("../public/models/rieva-aeris-x.glb", import.meta.url);
@@ -20,7 +21,7 @@ test("AERIS-X contains authored aircraft systems and module metadata", async () 
   assert.ok(buffer.length < 2_000_000, "asset remains browser-friendly");
 
   const gltf = readGlbJson(buffer);
-  assert.ok((gltf.meshes ?? []).length >= 120, "R2 airframe retains close-up detail meshes");
+  assert.ok((gltf.meshes ?? []).length >= 165, "R3 airframe retains close-up detail meshes");
   const names = new Set((gltf.nodes ?? []).map((node) => node.name));
   for (const name of [
     "AERIS_X_ROOT",
@@ -44,6 +45,11 @@ test("AERIS-X contains authored aircraft systems and module metadata", async () 
     "NOZZLE_INTERIOR_L",
     "NOZZLE_INTERIOR_R",
     "GEAR_BAY_INSET_NOSE",
+    "LANDING_GEAR_WHEEL_NOSE",
+    "LANDING_GEAR_STRUT_MAIN_L",
+    "LANDING_GEAR_STRUT_MAIN_R",
+    "WING_PANEL_SEAM_L_01",
+    "WING_PANEL_SEAM_R_02",
   ]) {
     assert.ok(names.has(name), `${name} is present`);
   }
@@ -79,7 +85,8 @@ test("AERIS-X contains authored aircraft systems and module metadata", async () 
   assert.equal(root?.extras?.no_weapons, true, "asset is explicitly unarmed");
   assert.match(root?.extras?.coordinate_contract ?? "", /-Z nose-forward/);
   assert.match(root?.extras?.reference_url ?? "", /nasa\.gov/);
-  assert.match(root?.extras?.geometry_revision ?? "", /R2/);
+  assert.match(root?.extras?.geometry_revision ?? "", /R3/);
+  assert.match(root?.extras?.visual_benchmark_note ?? "", /no third-party mesh imported/i);
 });
 
 test("Three.js loads AERIS-X parts and extras without losing interaction data", async () => {
@@ -108,4 +115,12 @@ test("Three.js loads AERIS-X parts and extras without losing interaction data", 
   assert.ok(named.has("REDUNDANT_CONTROL_TRUNK_B"), "second control path is loadable");
   assert.ok(named.has("ANCHOR_EXHAUST_L"), "effect anchors survive browser parsing");
   assert.ok(named.has("ANCHOR_EXHAUST_R"), "both propulsion anchors survive parsing");
+
+  const bounds = new Box3().setFromObject(gltf.scene);
+  const size = bounds.getSize(new Vector3());
+  const spanToLength = size.x / size.z;
+  assert.ok(
+    spanToLength > 0.62 && spanToLength < 0.72,
+    `fighter-like span/length proportion is retained (${spanToLength.toFixed(3)})`,
+  );
 });
