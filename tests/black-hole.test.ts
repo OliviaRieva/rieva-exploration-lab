@@ -3,10 +3,17 @@ import test from "node:test";
 import {
   approximateTidalDifferentialMps2,
   assessOrbit,
+  equatorialCircularPeriodSeconds,
   ergosphereRadiusRg,
   gravitationalRadiusKm,
   kerrRadii,
 } from "../lib/black-hole/model.ts";
+import {
+  blackHolePresets,
+  blackHoleReferences,
+  defaultBlackHoleConfiguration,
+  verificationDate,
+} from "../lib/black-hole/catalog.ts";
 
 function approximately(actual: number, expected: number, tolerance: number) {
   assert.ok(
@@ -14,6 +21,21 @@ function approximately(actual: number, expected: number, tolerance: number) {
     `expected ${actual} to be within ${tolerance} of ${expected}`,
   );
 }
+
+test("black-hole presets reference unique, existing catalog sources", () => {
+  const presetIds = blackHolePresets.map((preset) => preset.id);
+  const sourceIds = blackHoleReferences.map((reference) => reference.id);
+  assert.equal(new Set(presetIds).size, presetIds.length);
+  assert.equal(new Set(sourceIds).size, sourceIds.length);
+  const sourceIdSet = new Set(sourceIds);
+  for (const preset of blackHolePresets) {
+    for (const sourceId of preset.sourceIds) {
+      assert.ok(sourceIdSet.has(sourceId), `${preset.id} references ${sourceId}`);
+    }
+  }
+  assert.ok(presetIds.includes(defaultBlackHoleConfiguration.presetId));
+  assert.match(verificationDate, /^\d{4}-\d{2}-\d{2}$/);
+});
 
 test("Schwarzschild limit has horizon 2 rg, photon orbit 3 rg, and ISCO 6 rg", () => {
   const radii = kerrRadii(0);
@@ -41,6 +63,40 @@ test("Kerr outer static limit meets the horizon at the pole and remains 2 rg at 
 
 test("one solar mass gravitational radius is approximately 1.4767 km", () => {
   approximately(gravitationalRadiusKm(1), 1.47667, 2e-5);
+});
+
+test("public scale helpers reject non-finite inputs without leaking NaN", () => {
+  assert.equal(gravitationalRadiusKm(Number.NaN), 0);
+  assert.equal(
+    approximateTidalDifferentialMps2(Number.POSITIVE_INFINITY, 6, 12),
+    0,
+  );
+  assert.equal(
+    equatorialCircularPeriodSeconds(10, 0.1, 0.999, "retrograde"),
+    null,
+    "a non-positive Kerr period denominator is outside this helper's domain",
+  );
+  const assessment = assessOrbit({
+    massSolar: Number.NaN,
+    spin: Number.NaN,
+    radiusRg: Number.NaN,
+    direction: "sideways" as never,
+    probeKind: "dragon" as never,
+  });
+  assert.equal(assessment.regime, "captured");
+  assert.ok(Number.isFinite(assessment.selectedIscoRg));
+  assert.ok(Number.isFinite(assessment.selectedPhotonRg));
+
+  const extremeButFinite = assessOrbit({
+    massSolar: 1e300,
+    spin: 0.5,
+    radiusRg: 7,
+    direction: "prograde",
+    probeKind: "spacecraft",
+  });
+  assert.ok(Number.isFinite(gravitationalRadiusKm(1e300)));
+  assert.ok(Number.isFinite(extremeButFinite.tidalDifferentialMps2!));
+  assert.ok(Number.isFinite(extremeButFinite.orbitalPeriodSeconds!));
 });
 
 test("orbit assessment distinguishes capture, unstable, and permitted circular regions", () => {

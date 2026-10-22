@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readdir } from "node:fs/promises";
 import test from "node:test";
 
 async function render(pathname = "/") {
@@ -22,7 +23,7 @@ async function render(pathname = "/") {
   );
 }
 
-test("server-renders the complete four-laboratory RIEVA shell", async () => {
+test("server-renders the lightweight four-laboratory RIEVA home shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -32,9 +33,10 @@ test("server-renders the complete four-laboratory RIEVA shell", async () => {
   assert.match(html, /RIEVA/);
   assert.match(html, /Design the journey/);
   assert.match(html, /Choose a laboratory to begin/);
-  assert.match(html, /Shape an orbit\. Interrupt the engine\. Measure what changes\./);
-  assert.match(html, /Mission inputs/);
-  assert.match(html, /Numerical validation/);
+  assert.match(html, /Orbital Flight/);
+  assert.match(html, /Black Hole Lab/);
+  assert.match(html, /Surface Studio/);
+  assert.match(html, /Contact Flight/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
@@ -46,63 +48,55 @@ test("the persistent four-laboratory document has unique element ids", async () 
   assert.deepEqual([...new Set(duplicates)], []);
 });
 
-test("includes honest model language and accessible entry points", async () => {
+test("includes accessible launch controls and persistent workspace targets", async () => {
   const response = await render();
   const html = await response.text();
 
   assert.match(html, /Skip to (?:<!-- -->)?laboratory choices/);
-  assert.match(html, /Prograde guidance/);
-  assert.match(html, /not an optimizer/i);
-  assert.match(html, /Crossing target altitude alone is not circular-orbit insertion/i);
-  assert.match(html, /No atmosphere or drag/i);
-  assert.match(html, /Export CSV/);
+  assert.match(html, /aria-label="Laboratory sections"/);
+  assert.match(html, /aria-controls="orbital-flight"/);
+  assert.match(html, /aria-controls="black-hole-laboratory"/);
+  assert.match(html, /aria-controls="surface-studio"/);
+  assert.match(html, /aria-controls="contact-flight-laboratory"/);
+  assert.match(html, /id="orbital-flight" hidden="" tabindex="-1"/);
+  assert.match(html, /id="black-hole-laboratory" hidden="" tabindex="-1"/);
+  assert.match(html, /id="surface-studio" hidden="" tabindex="-1"/);
+  assert.match(html, /id="contact-flight-laboratory" hidden="" tabindex="-1"/);
 });
 
-test("server-renders the Black Hole Laboratory and its evidence boundaries", async () => {
+test("defers laboratory implementations from the initial response", async () => {
   const response = await render();
   const html = await response.text();
 
-  assert.match(html, /Black Hole Lab/);
-  assert.match(html, /Approach the boundary/);
-  assert.match(html, /Kerr spacetime/);
-  assert.match(html, /Outer event horizon/);
-  assert.match(html, /No invented survival probability/);
-  assert.match(html, /not a geodesic integration/i);
-  assert.match(html, /Magnetic structure is becoming observable/);
+  assert.doesNotMatch(html, /Shape an orbit\. Interrupt the engine\. Measure what changes\./);
+  assert.doesNotMatch(html, /Approach the boundary/);
+  assert.doesNotMatch(html, /Protective systems, tailored with intent/);
+  assert.doesNotMatch(html, /Put AERIS-X inside the flow/);
+  assert.doesNotMatch(html, /SimulatorApp-[\w-]+\.js/);
+  assert.doesNotMatch(html, /BlackHoleLab-[\w-]+\.js/);
+  assert.doesNotMatch(html, /SurfaceStudio-[\w-]+\.js/);
+  assert.doesNotMatch(html, /ContactFlightLab-[\w-]+\.js/);
 });
 
-test("server-renders the Surface Studio without replacing Orbital Flight", async () => {
-  const response = await render();
-  const html = await response.text();
+test("build emits one independently loadable client chunk for each laboratory", async () => {
+  const assetsUrl = new URL("../dist/client/assets/", import.meta.url);
+  const assets = await readdir(assetsUrl);
 
-  assert.match(html, /Orbital Flight/);
-  assert.match(html, /Surface Studio/);
-  assert.match(html, /Protective systems, tailored with intent\./);
-  assert.match(html, /MAX/);
-  assert.match(html, /MALTE/);
-  assert.match(html, /BASTIAN/);
-  assert.match(html, /Required items present/);
-  assert.match(html, /UV ≠ ionizing radiation/);
-  assert.match(html, /No store/);
-  assert.doesNotMatch(html, /shopping cart|checkout|buy now/i);
-  assert.match(html, /does not mean safe, certified, integrated, or flight ready/i);
+  assert.ok(assets.some((file) => /^SimulatorApp-.+\.js$/.test(file)));
+  assert.ok(assets.some((file) => /^BlackHoleLab-.+\.js$/.test(file)));
+  assert.ok(assets.some((file) => /^SurfaceStudio-.+\.js$/.test(file)));
+  assert.ok(assets.some((file) => /^ContactFlightLab-.+\.js$/.test(file)));
 });
 
-test("server-renders the complete Contact Flight laboratory without replacing existing labs", async () => {
+test("home portal retains honest scope and descriptive laboratory launch labels", async () => {
   const response = await render();
   const html = await response.text();
 
   assert.match(html, /Four interactive laboratories/);
-  assert.match(html, /Contact Flight/);
-  assert.match(html, /Put AERIS-X inside the flow/);
-  assert.match(html, /Follow the air, not the flame/);
-  assert.match(html, /Resilience without imaginary invincibility/);
-  assert.match(html, /No extraterrestrial life or intelligence has been confirmed/);
-  assert.match(html, /This is not a flight envelope, CFD solution, or safety clearance/);
-  assert.match(html, /does not design weapons, harmful biological agents, blinding systems/i);
-  assert.match(html, /Research-informed, not certainty-decorated/);
-  assert.match(html, /not an antibiotic shield/i);
-  assert.match(html, /Orbital Flight/);
-  assert.match(html, /Black Hole Lab/);
-  assert.match(html, /Surface Studio/);
+  assert.match(html, /Research-informed concepts · Explicit assumptions · No claim of flight certification/);
+  assert.match(html, /aria-label="Open Orbital Flight:[^"]+"/);
+  assert.match(html, /aria-label="Open Black Hole Lab:[^"]+"/);
+  assert.match(html, /aria-label="Open Surface Studio:[^"]+"/);
+  assert.match(html, /aria-label="Open Contact Flight:[^"]+"/);
+  assert.doesNotMatch(html, /shopping cart|checkout|buy now/i);
 });

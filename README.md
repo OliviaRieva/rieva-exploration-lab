@@ -18,10 +18,10 @@ Open the local address printed by the development server (normally `http://local
 Useful commands:
 
 ```bash
-npm run test:physics      # orbital, Surface Studio, and black-hole model checks
+npm run test:physics      # orbital, Surface Studio, black-hole, and Contact Flight checks
 npm run validate:python   # independent standard-library Python validation
 npm run build             # production Cloudflare-compatible build
-npm test                  # physics tests + build + rendered-page checks
+npm test                  # physics, asset, production-build, and rendered-page checks
 npm run lint
 ```
 
@@ -74,7 +74,7 @@ The suit model is an educational integration concept, not qualified hardware. Ha
 
 ### Contact Flight
 
-- An original, unarmed **AERIS-X** research aircraft authored in Blender and exported as an optimized glTF asset: 170 named meshes, 11,642 vertices, and 20,124 triangles. Its R3 form uses a long faceted forebody, tighter cranked planform, blended inlets, canted twin tails, panel seams, and inspectable stowed landing gear.
+- An original, unarmed **AERIS-X** research aircraft authored in Blender and exported as an optimized glTF asset: 170 named meshes, 14,258 exported primitive vertices, and 25,356 triangles. Its R3 form uses a long faceted forebody, tighter cranked planform, blended inlets, canted twin tails, panel seams, and inspectable stowed landing gear.
 - Mouse/touch rotation, wheel or pinch zoom, front/top/side/reset cameras, clickable named parts, external/cutaway/exploded views, and a visible fallback if WebGL or the asset fails.
 - A live wind-tunnel view with qualitative airflow streaks, pressure-wash overlays, and supersonic Mach-angle cues. These are explicitly not presented as CFD.
 - Editable altitude, true airspeed, angle of attack, wing state, flow view, and unknown-event exercise inputs.
@@ -113,7 +113,8 @@ The spacecraft starts in an exact circular orbit at the selected altitude. When 
 - Stored output cadence: 60 s.
 - Steps are split at output times, interruption start/end, propellant exhaustion, target cutoff, and mission end so a discontinuity is never averaged across one step.
 - Target and impact crossings are refined in time.
-- Both cases use the same output array from zero to the selected mission limit.
+- Output construction and caller-supplied axes are capped at 250,000 scheduled samples for browser memory safety.
+- Both cases use the same scheduled time axis from zero to the selected mission limit. A body impact terminates the affected scenario; `validLength` identifies the populated prefix rather than fabricating post-impact samples.
 
 ### Honest success criterion
 
@@ -134,7 +135,7 @@ The technology presets only change parameters represented by this model. The res
 
 ## Validation
 
-`scripts/validate.py` is independent of the TypeScript implementation and uses only the Python standard library. On 1 October 2026 it measured:
+`scripts/validate.py` is independent of the TypeScript implementation and uses only the Python standard library. On 22 October 2026 it measured:
 
 | Check | Measured | Acceptance |
 |---|---:|---:|
@@ -146,7 +147,7 @@ The technology presets only change parameters represented by this model. The res
 | Interruption thrust leakage | exactly 0 N | exactly 0 N |
 | Propellant change during interruption | exactly 0 kg | ≤ 1 × 10⁻¹² kg |
 
-The TypeScript suite adds common-axis identity, zero-duration interruption equivalence, target-gate semantics, target cutoff, and fuel-exhaustion checks. Never replace these checks with stored decorative curves; rerun them after changing the solver.
+The TypeScript suite adds common-axis identity and size limits, zero-duration interruption equivalence, target-gate semantics, target cutoff, simultaneous cutoff/depletion handling, fuel exhaustion, persistence-schema boundaries, catalog integrity, atmosphere boundaries, and Kerr-domain checks. Never replace these checks with stored decorative curves; rerun them after changing the solver.
 
 ## Project structure
 

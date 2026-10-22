@@ -17,7 +17,12 @@ import {
   validateMissionParameters,
   type MissionParameters,
 } from "../lib/simulation/index.ts";
-import { centralBodies } from "../lib/orbital/catalog.ts";
+import {
+  centralBodies,
+  exoplanetResearchTargets,
+  getCentralBody,
+  spacecraftDesigns,
+} from "../lib/orbital/catalog.ts";
 
 function mission(
   overrides: Partial<MissionParameters> = {},
@@ -30,11 +35,71 @@ function relativeError(actual: number, expected: number): number {
 }
 
 test("all catalog body defaults fit the published altitude controls", () => {
+  const ids = new Set<string>();
   for (const body of centralBodies) {
+    assert.equal(ids.has(body.id), false, `duplicate central-body id ${body.id}`);
+    ids.add(body.id);
+    assert.ok(Number.isFinite(body.meanRadiusM) && body.meanRadiusM > 0);
+    assert.ok(
+      Number.isFinite(body.gravitationalParameterM3S2) &&
+        body.gravitationalParameterM3S2 > 0,
+    );
     assert.ok(body.initialAltitudeKm >= 1 && body.initialAltitudeKm <= 100_000);
     assert.ok(body.targetAltitudeKm >= 130 && body.targetAltitudeKm <= 100_000);
     assert.ok(body.targetAltitudeKm > body.initialAltitudeKm);
   }
+  assert.equal(
+    getCentralBody("unsupported" as never).id,
+    "earth",
+    "runtime-invalid ids fall back by identity rather than array position",
+  );
+});
+
+test("orbital vehicle and research catalogs have unique, bounded entries", () => {
+  assert.equal(
+    new Set(spacecraftDesigns.map((design) => design.id)).size,
+    spacecraftDesigns.length,
+  );
+  for (const design of spacecraftDesigns) {
+    assert.ok(design.dryMassKg > 0);
+    assert.ok(design.propellantMassKg >= 0);
+    assert.ok(design.powerKw >= 0);
+    assert.ok(design.specificImpulseS > 0);
+    assert.ok(design.efficiencyPct >= 0 && design.efficiencyPct <= 100);
+  }
+  assert.equal(
+    new Set(exoplanetResearchTargets.map((target) => target.name)).size,
+    exoplanetResearchTargets.length,
+  );
+  for (const target of exoplanetResearchTargets) {
+    assert.match(target.sourceUrl, /^https:\/\//);
+    assert.ok(target.verifiedDate.length > 0);
+    assert.match(target.honestBoundary, /no |not |unconfirmed|without /i);
+  }
+});
+
+test("output-time construction validates its public boundaries and exact endpoint", () => {
+  assert.deepEqual(createOutputTimes(10, 4), [0, 4, 8, 10]);
+  assert.deepEqual(createOutputTimes(0, 60), [0]);
+  assert.throws(() => createOutputTimes(10, 0), /positive finite/i);
+  assert.throws(() => createOutputTimes(Number.NaN, 1), /finite, non-negative/i);
+
+  const issues = validateMissionParameters(
+    mission({ maxDurationS: 1_000 }),
+    { outputStepS: 1_000 / 249_999.5 },
+  );
+  assert.ok(
+    issues.some((issue) => issue.field === "outputStepS"),
+    "the cap counts the initial and non-cadence terminal samples",
+  );
+});
+
+test("caller-supplied output arrays cannot bypass the browser sample cap", () => {
+  const oversizedTimes = new Array<number>(250_001).fill(0);
+  assert.throws(
+    () => simulateScenario(mission(), "reference", oversizedTimes),
+    /sample limit/i,
+  );
 });
 
 test("an unpowered circular orbit remains circular and conserves invariants", () => {
@@ -317,6 +382,19 @@ test("success requires both semimajor-axis and eccentricity tolerances", () => {
     ),
     false,
   );
+  assert.equal(
+    meetsTargetCriteria(targetSemimajorAxisM, -0.001, targetSemimajorAxisM),
+    false,
+    "negative eccentricity is not a valid orbital element",
+  );
+  assert.equal(
+    meetsTargetCriteria(targetSemimajorAxisM, 0, targetSemimajorAxisM, {
+      semimajorAxisToleranceM: -1,
+      eccentricityTolerance: 0.005,
+    }),
+    false,
+    "negative tolerances cannot turn the public predicate into an invalid gate",
+  );
 });
 
 test("prograde guidance cuts off at a genuinely near-circular target orbit", () => {
@@ -385,4 +463,48 @@ test("fuel exhaustion is event-aligned, never negative, and permanently disables
     assert.equal(result.reference.series.phase[index], PHASE.PROPELLANT_DEPLETED);
   }
   assert.equal(result.reference.series.propellantKg.at(-1), 0);
+});
+
+test("simultaneous target crossing and fuel exhaustion record both physical events", () => {
+  const unconstrained = mission({
+    targetAltitudeM: 20_000_000,
+    dryMassKg: 500,
+    propellantMassKg: 0.001,
+    powerW: 10_000,
+    efficiency: 0.6,
+    specificImpulseS: 1_000,
+    interruptionStartS: 0,
+    interruptionDurationS: 0,
+    maxDurationS: 60,
+  });
+  const depletionTimeS =
+    unconstrained.propellantMassKg /
+    propulsionPerformance(unconstrained).nominalMassFlowKgps;
+  const atDepletion = simulateScenario(
+    unconstrained,
+    "reference",
+    [0, depletionTimeS],
+    { internalStepS: 5, outputStepS: depletionTimeS, eventTimeToleranceS: 1e-8 },
+  );
+  const tuned = mission({
+    ...unconstrained,
+    targetAltitudeM:
+      atDepletion.summary.finalSemimajorAxisM - EARTH.meanRadiusM,
+  });
+  const result = simulateScenario(tuned, "reference", [0, tuned.maxDurationS], {
+    internalStepS: 5,
+    outputStepS: tuned.maxDurationS,
+    eventTimeToleranceS: 1e-8,
+  });
+  const cutoff = result.summary.events.find(
+    (event) => event.type === "target-thrust-cutoff",
+  );
+  const depletion = result.summary.events.find(
+    (event) => event.type === "propellant-depleted",
+  );
+
+  assert.ok(cutoff && depletion);
+  assert.ok(Math.abs(cutoff.timeS - depletion.timeS) <= 1e-8);
+  assert.equal(result.series.propellantKg.at(-1), 0);
+  assert.equal(result.summary.terminalReason, "target-met");
 });

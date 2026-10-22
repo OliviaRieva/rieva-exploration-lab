@@ -289,6 +289,11 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+function preferredScenePixelRatio() {
+  const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  return Math.min(window.devicePixelRatio || 1, coarsePointer ? 1.5 : 1.75);
+}
+
 function vector(
   x = 0,
   y = 0,
@@ -2542,21 +2547,30 @@ function applyAppearance(
 }
 
 function disposeObject(root: THREE.Object3D) {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
   root.traverse((object) => {
-    if (
-      !(
-        object instanceof THREE.Mesh ||
-        object instanceof THREE.Points ||
-        object instanceof THREE.Line ||
-        object instanceof THREE.LineSegments
-      )
-    ) return;
-    object.geometry.dispose();
-    const materials = Array.isArray(object.material)
-      ? object.material
-      : [object.material];
-    for (const material of materials) material.dispose();
+    const renderable = object as THREE.Object3D & {
+      geometry?: THREE.BufferGeometry;
+      material?: THREE.Material | THREE.Material[];
+    };
+    if (renderable.geometry) geometries.add(renderable.geometry);
+    const objectMaterials = renderable.material
+      ? Array.isArray(renderable.material)
+        ? renderable.material
+        : [renderable.material]
+      : [];
+    for (const material of objectMaterials) {
+      materials.add(material);
+      Object.values(material).forEach((value) => {
+        if (value instanceof THREE.Texture) textures.add(value);
+      });
+    }
   });
+  geometries.forEach((geometry) => geometry.dispose());
+  textures.forEach((texture) => texture.dispose());
+  materials.forEach((material) => material.dispose());
 }
 
 function updateCamera(camera: THREE.PerspectiveCamera, orbit: CameraOrbit) {
@@ -2623,6 +2637,7 @@ function authoredGroupWithProperty(
 }
 
 function installAuthoredSuits(rig: SuitRig, loadedScene: THREE.Group) {
+  const sourceMaterials = new Set<THREE.Material>();
   const container = new THREE.Group();
   container.name = "Blender-authored RIEVA missionwear";
   container.userData.assetKind = "blender-authored";
@@ -2670,6 +2685,8 @@ function installAuthoredSuits(rig: SuitRig, loadedScene: THREE.Group) {
     if (!(object instanceof THREE.Mesh)) return;
     object.castShadow = true;
     object.receiveShadow = true;
+    const originals = Array.isArray(object.material) ? object.material : [object.material];
+    originals.forEach((material) => sourceMaterials.add(material));
     if (Array.isArray(object.material)) {
       object.material = object.material.map((material) => material.clone());
     } else {
@@ -2706,6 +2723,7 @@ function installAuthoredSuits(rig: SuitRig, loadedScene: THREE.Group) {
       }
     });
   });
+  sourceMaterials.forEach((material) => material.dispose());
 
   for (const conceptId of ["selene", "areo", "vector"] as const) {
     const conceptRoot = authoredGroupWithProperty(
@@ -2827,6 +2845,8 @@ export function SurfaceSuitScene({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rigRef = useRef<SuitRig | null>(null);
   const animationLoopRef = useRef<(() => void) | null>(null);
+  const syncAnimationLoopRef = useRef<(() => void) | null>(null);
+  const requestRenderRef = useRef<(() => void) | null>(null);
   const activeRef = useRef(active);
   const contextLostRef = useRef(false);
   const conceptIdRef = useRef<SurfaceSuitConceptId>(conceptId);
@@ -2974,6 +2994,9 @@ export function SurfaceSuitScene({
     const viewport = viewportRef.current;
     if (!viewport) return;
     let disposed = false;
+    let inViewport = true;
+    let documentVisible = !document.hidden;
+    const assetAbortController = new AbortController();
 
     let renderer: THREE.WebGLRenderer;
     try {
@@ -2993,7 +3016,8 @@ export function SurfaceSuitScene({
     }
 
     rendererRef.current = renderer;
-    renderer.setPixelRatio(clamp(window.devicePixelRatio || 1, 1, 2));
+    contextLostRef.current = false;
+    renderer.setPixelRatio(preferredScenePixelRatio());
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.08;
@@ -3120,9 +3144,16 @@ export function SurfaceSuitScene({
     applyTestMode(rig, testModeRef.current);
 
     const authoredLoader = new GLTFLoader();
-    authoredLoader.load(
-      "/models/rieva-missionwear.glb",
-      (gltf) => {
+    void fetch("/models/rieva-missionwear.glb", {
+      signal: assetAbortController.signal,
+      cache: "force-cache",
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Missionwear asset request failed (${response.status})`);
+        return response.arrayBuffer();
+      })
+      .then((buffer) => authoredLoader.parseAsync(buffer, "/models/"))
+      .then((gltf) => {
         if (disposed) {
           disposeObject(gltf.scene);
           return;
@@ -3168,18 +3199,20 @@ export function SurfaceSuitScene({
             current.previewOnlySelectedPart,
           );
           setAssetStatus("ready");
+          requestRenderRef.current?.();
         } catch (error) {
           console.error("Unable to install Blender missionwear asset", error);
           setAssetStatus("fallback");
           rig.body.visible = true;
+          requestRenderRef.current?.();
         }
-      },
-      undefined,
-      (error) => {
+      })
+      .catch((error: unknown) => {
+        if (disposed || (error instanceof DOMException && error.name === "AbortError")) return;
         console.error("Unable to load Blender missionwear asset", error);
-        if (!disposed) setAssetStatus("fallback");
-      },
-    );
+        setAssetStatus("fallback");
+        requestRenderRef.current?.();
+      });
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -3233,6 +3266,7 @@ export function SurfaceSuitScene({
       orbit.yaw -= deltaX * 0.007;
       orbit.pitch = clamp(orbit.pitch + deltaY * 0.006, -0.28, 0.72);
       updateCamera(camera, orbit);
+      requestRenderRef.current?.();
     };
 
     const endPointer = (event: PointerEvent) => {
@@ -3258,6 +3292,7 @@ export function SurfaceSuitScene({
         10.5,
       );
       updateCamera(camera, orbit);
+      requestRenderRef.current?.();
       setCameraLabel("Custom view");
       setActiveCameraPreset("custom");
     };
@@ -3278,41 +3313,63 @@ export function SurfaceSuitScene({
     renderer.domElement.addEventListener("wheel", handleWheel, { passive: false });
     renderer.domElement.addEventListener("webglcontextlost", handleContextLost);
 
+    let lastWidth = 0;
+    let lastHeight = 0;
+    let lastPixelRatio = 0;
     const resize = () => {
-      const width = Math.max(1, viewport.clientWidth);
-      const height = Math.max(1, viewport.clientHeight);
+      const width = Math.max(1, Math.round(viewport.clientWidth));
+      const height = Math.max(1, Math.round(viewport.clientHeight));
+      const pixelRatio = preferredScenePixelRatio();
+      if (
+        width === lastWidth &&
+        height === lastHeight &&
+        pixelRatio === lastPixelRatio
+      ) return;
+      lastWidth = width;
+      lastHeight = height;
+      lastPixelRatio = pixelRatio;
+      renderer.setPixelRatio(pixelRatio);
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
+      requestRenderRef.current?.();
     };
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(viewport);
+    window.addEventListener("resize", resize, { passive: true });
     resize();
 
-    const clock = new THREE.Clock();
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let reducedMotion = reducedMotionQuery.matches;
+    let elapsed = 0;
+    let previousTime = performance.now();
+    const selectedGroups: THREE.Object3D[] = [];
+    const selectionBounds = new THREE.Box3();
     const renderFrame = () => {
-      const elapsed = clock.getElapsedTime();
+      const now = performance.now();
+      elapsed += Math.min(0.05, Math.max(0, (now - previousTime) / 1_000));
+      previousTime = now;
+      const motionTime = reducedMotion ? 0 : elapsed;
       const activeMotion = reducedMotion ? "neutral" : motionModeRef.current;
       const locomotion = activeMotion === "walk" || activeMotion === "run";
       const frequency = activeMotion === "run" ? 6.2 : 3.1;
       const stride = activeMotion === "run" ? 0.7 : activeMotion === "walk" ? 0.42 : 0;
-      const swing = Math.sin(elapsed * frequency) * stride;
-      const oppositeSwing = Math.sin(elapsed * frequency + Math.PI) * stride;
+      const swing = Math.sin(motionTime * frequency) * stride;
+      const oppositeSwing = Math.sin(motionTime * frequency + Math.PI) * stride;
       const kneeDepth = activeMotion === "run" ? 0.58 : 0.34;
       const kneeFlexLeft = locomotion
-        ? Math.max(0, -Math.sin(elapsed * frequency)) * kneeDepth
+        ? Math.max(0, -Math.sin(motionTime * frequency)) * kneeDepth
         : activeMotion === "jump"
           ? 0.68
           : 0;
       const kneeFlexRight = locomotion
-        ? Math.max(0, Math.sin(elapsed * frequency)) * kneeDepth
+        ? Math.max(0, Math.sin(motionTime * frequency)) * kneeDepth
         : activeMotion === "jump"
           ? 0.68
           : 0;
       const jumpLift =
         activeMotion === "jump"
-          ? Math.max(0, Math.sin(elapsed * 2.15)) * 0.52
+          ? Math.max(0, Math.sin(motionTime * 2.15)) * 0.52
           : 0;
       const leftLegTarget = activeMotion === "jump" ? -0.24 : swing;
       const rightLegTarget = activeMotion === "jump" ? -0.24 : oppositeSwing;
@@ -3362,7 +3419,7 @@ export function SurfaceSuitScene({
         rig.body.position.y,
         bodyBaseY +
           (locomotion
-            ? Math.abs(Math.sin(elapsed * frequency)) * (activeMotion === "run" ? 0.06 : 0.035)
+            ? Math.abs(Math.sin(motionTime * frequency)) * (activeMotion === "run" ? 0.06 : 0.035)
             : jumpLift),
         0.16,
       );
@@ -3373,12 +3430,12 @@ export function SurfaceSuitScene({
       );
       rig.body.rotation.z = THREE.MathUtils.lerp(
         rig.body.rotation.z,
-        locomotion ? Math.sin(elapsed * frequency * 0.5) * (activeMotion === "run" ? 0.038 : 0.024) : 0,
+        locomotion ? Math.sin(motionTime * frequency * 0.5) * (activeMotion === "run" ? 0.038 : 0.024) : 0,
         0.1,
       );
       rig.body.rotation.y = THREE.MathUtils.lerp(
         rig.body.rotation.y,
-        locomotion ? -Math.sin(elapsed * frequency) * 0.025 : 0,
+        locomotion ? -Math.sin(motionTime * frequency) * 0.025 : 0,
         0.1,
       );
 
@@ -3434,7 +3491,7 @@ export function SurfaceSuitScene({
           authored.body.position.y,
           authoredBaseY +
             (locomotion
-              ? Math.abs(Math.sin(elapsed * frequency)) *
+              ? Math.abs(Math.sin(motionTime * frequency)) *
                 (activeMotion === "run" ? 0.055 : 0.032) /
                 authoredScale
               : jumpLift / authoredScale),
@@ -3447,17 +3504,17 @@ export function SurfaceSuitScene({
         );
         authored.body.rotation.z = THREE.MathUtils.lerp(
           authored.body.rotation.z,
-          locomotion ? Math.sin(elapsed * frequency * 0.5) * (activeMotion === "run" ? 0.034 : 0.021) : 0,
+          locomotion ? Math.sin(motionTime * frequency * 0.5) * (activeMotion === "run" ? 0.034 : 0.021) : 0,
           0.1,
         );
         authored.body.rotation.y = THREE.MathUtils.lerp(
           authored.body.rotation.y,
-          locomotion ? -Math.sin(elapsed * frequency) * 0.022 : 0,
+          locomotion ? -Math.sin(motionTime * frequency) * 0.022 : 0,
           0.1,
         );
       }
 
-      const selectedGroups: THREE.Object3D[] = [];
+      selectedGroups.length = 0;
       const selected = selectedPartRef.current;
       if (selected) {
         for (const [internalId, groups] of rig.partGroups) {
@@ -3467,20 +3524,20 @@ export function SurfaceSuitScene({
         }
       }
       if (selectedGroups.length > 0) {
-        const bounds = new THREE.Box3();
-        for (const group of selectedGroups) bounds.expandByObject(group, true);
-        if (!bounds.isEmpty()) {
-          rig.selectionHalo.box.copy(bounds).expandByScalar(0.045);
+        selectionBounds.makeEmpty();
+        for (const group of selectedGroups) selectionBounds.expandByObject(group, true);
+        if (!selectionBounds.isEmpty()) {
+          rig.selectionHalo.box.copy(selectionBounds).expandByScalar(0.045);
           rig.selectionHalo.visible = true;
           const haloMaterials = Array.isArray(rig.selectionHalo.material)
             ? rig.selectionHalo.material
             : [rig.selectionHalo.material];
           for (const haloMaterial of haloMaterials) {
             haloMaterial.transparent = true;
-            haloMaterial.opacity = 0.38 + Math.sin(elapsed * 4.2) * 0.16;
+            haloMaterial.opacity = reducedMotion ? 0.46 : 0.38 + Math.sin(motionTime * 4.2) * 0.16;
           }
         }
-        const pulse = 0.28 + (Math.sin(elapsed * 4.2) + 1) * 0.24;
+        const pulse = reducedMotion ? 0.4 : 0.28 + (Math.sin(motionTime * 4.2) + 1) * 0.24;
         for (const group of selectedGroups) {
           group.traverse((object) => {
             if (!(object instanceof THREE.Mesh)) return;
@@ -3502,12 +3559,14 @@ export function SurfaceSuitScene({
         effect.traverse((object) => {
           if (object instanceof THREE.Line) {
             const material = object.material;
-            material.opacity = 0.55 + (Math.sin(elapsed * 5.5) + 1) * 0.16;
+            material.opacity = reducedMotion ? 0.65 : 0.55 + (Math.sin(motionTime * 5.5) + 1) * 0.16;
           }
           if (!(object instanceof THREE.Mesh)) return;
           const phase =
             (object.userData.signalPhase ?? object.userData.hapticPhase ?? object.userData.supportPhase ?? 0) as number;
-          const cycle = (elapsed * (activeTest === "haptic" ? 1.9 : 1.25) + phase) % 1;
+          const cycle = reducedMotion
+            ? 0.45
+            : (motionTime * (activeTest === "haptic" ? 1.9 : 1.25) + phase) % 1;
           if (activeTest === "signal" || activeTest === "haptic" || activeTest === "support") {
             const scale = 0.86 + cycle * 0.38;
             object.scale.setScalar(scale);
@@ -3515,33 +3574,88 @@ export function SurfaceSuitScene({
               object.material.opacity = Math.max(0.08, 0.58 * (1 - cycle));
             }
           } else if (activeTest === "lighting" && object.material instanceof THREE.MeshBasicMaterial) {
-            object.material.opacity = 0.09 + (Math.sin(elapsed * 3.4) + 1) * 0.025;
+            object.material.opacity = reducedMotion ? 0.115 : 0.09 + (Math.sin(motionTime * 3.4) + 1) * 0.025;
           }
         });
         if (activeTest === "dust") {
-          effect.rotation.y = Math.sin(elapsed * 1.7) * 0.08;
-          effect.position.y = (elapsed * 0.12) % 0.18;
+          effect.rotation.y = reducedMotion ? 0 : Math.sin(motionTime * 1.7) * 0.08;
+          effect.position.y = reducedMotion ? 0 : (motionTime * 0.12) % 0.18;
         }
       }
       renderer.render(scene, camera);
     };
     animationLoopRef.current = renderFrame;
-    if (activeRef.current) renderer.setAnimationLoop(renderFrame);
-    else renderer.render(scene, camera);
+    const requestRender = () => {
+      if (
+        activeRef.current &&
+        inViewport &&
+        documentVisible &&
+        !contextLostRef.current &&
+        reducedMotion
+      ) renderFrame();
+    };
+    requestRenderRef.current = requestRender;
+    const syncAnimationLoop = () => {
+      if (
+        activeRef.current &&
+        inViewport &&
+        documentVisible &&
+        !contextLostRef.current
+      ) {
+        previousTime = performance.now();
+        if (reducedMotion) {
+          renderer.setAnimationLoop(null);
+          renderFrame();
+        } else {
+          renderer.setAnimationLoop(renderFrame);
+        }
+      } else {
+        renderer.setAnimationLoop(null);
+      }
+    };
+    syncAnimationLoopRef.current = syncAnimationLoop;
+    const onVisibilityChange = () => {
+      documentVisible = document.visibilityState !== "hidden";
+      syncAnimationLoop();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const visibilityObserver = new IntersectionObserver(
+      ([entry]) => {
+        inViewport = Boolean(entry?.isIntersecting);
+        syncAnimationLoop();
+      },
+      { rootMargin: "120px", threshold: 0.01 },
+    );
+    visibilityObserver.observe(viewport);
+    const onReducedMotionChange = (event: MediaQueryListEvent) => {
+      reducedMotion = event.matches;
+      previousTime = performance.now();
+      syncAnimationLoop();
+    };
+    reducedMotionQuery.addEventListener("change", onReducedMotionChange);
+    syncAnimationLoop();
+    if (!activeRef.current) renderer.render(scene, camera);
 
     return () => {
       disposed = true;
+      assetAbortController.abort();
       renderer.setAnimationLoop(null);
       resizeObserver.disconnect();
+      visibilityObserver.disconnect();
+      window.removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      reducedMotionQuery.removeEventListener("change", onReducedMotionChange);
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       renderer.domElement.removeEventListener("pointermove", handlePointerMove);
       renderer.domElement.removeEventListener("pointerup", endPointer);
       renderer.domElement.removeEventListener("pointercancel", endPointer);
       renderer.domElement.removeEventListener("wheel", handleWheel);
       renderer.domElement.removeEventListener("webglcontextlost", handleContextLost);
+      scene.environment = null;
       disposeObject(scene);
       environmentTarget.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
       if (renderer.domElement.parentElement === viewport) {
         viewport.removeChild(renderer.domElement);
       }
@@ -3550,22 +3664,15 @@ export function SurfaceSuitScene({
       cameraRef.current = null;
       rigRef.current = null;
       animationLoopRef.current = null;
+      syncAnimationLoopRef.current = null;
+      requestRenderRef.current = null;
       contextLostRef.current = false;
     };
   }, []);
 
   useEffect(() => {
     activeRef.current = active;
-    const renderer = rendererRef.current;
-    const renderFrame = animationLoopRef.current;
-    if (!renderer || !renderFrame || contextLostRef.current) return;
-    if (active) renderer.setAnimationLoop(renderFrame);
-    else {
-      renderer.setAnimationLoop(null);
-      const scene = sceneRef.current;
-      const camera = cameraRef.current;
-      if (scene && camera) renderer.render(scene, camera);
-    }
+    syncAnimationLoopRef.current?.();
   }, [active]);
 
   useEffect(() => {
@@ -3648,6 +3755,32 @@ export function SurfaceSuitScene({
     );
   }, [cutaway, previewOnlySelectedPart, resolvedPalette, selectedPartId]);
 
+  useEffect(() => {
+    requestRenderRef.current?.();
+  }, [
+    assistModule,
+    bodyPreset,
+    bootStyle,
+    catEars,
+    conceptId,
+    cutaway,
+    dustModule,
+    exploded,
+    haptics,
+    helmetAttached,
+    pantsStyle,
+    previewOnlySelectedPart,
+    resolvedMotionMode,
+    resolvedPalette,
+    sampleKit,
+    selectedPartId,
+    shoulderCamera,
+    staff,
+    tetherReel,
+    testMode,
+    torsoStyle,
+  ]);
+
   const setCameraPreset = useCallback(
     (preset: "front" | "back" | "side" | "reset") => {
       const camera = cameraRef.current;
@@ -3671,6 +3804,7 @@ export function SurfaceSuitScene({
             ? "Side view"
             : "Front view",
       );
+      requestRenderRef.current?.();
     },
     [],
   );
@@ -3685,9 +3819,7 @@ export function SurfaceSuitScene({
       10.5,
     );
     updateCamera(camera, orbit);
-    const renderer = rendererRef.current;
-    const scene = sceneRef.current;
-    if (renderer && scene) renderer.render(scene, camera);
+    requestRenderRef.current?.();
     setCameraLabel(`Custom view · ${direction === "in" ? "zoomed in" : "zoomed out"}`);
     setActiveCameraPreset("custom");
   }, []);

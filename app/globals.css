@@ -3937,3 +3937,98 @@ h3 {
   .equation-symbols { grid-template-columns: 1fr 1fr; }
   .bh-equation-statement { grid-template-columns: 1fr; }
 }
+
+/* RIEVA shell loading, focus, and compact navigation */
+.workspace-panel:not([hidden]) {
+  animation: workspace-panel-reveal 260ms ease-out both;
+}
+
+.workspace-panel h1[tabindex="-1"]:focus-visible,
+.workspace-panel:focus-visible {
+  outline: 3px solid rgba(105, 83, 216, 0.58);
+  outline-offset: -3px;
+}
+
+.global-brand:focus-visible,
+.workspace-switcher button:focus-visible,
+.context-nav a:focus-visible {
+  outline: 3px solid rgba(105, 83, 216, 0.56);
+  outline-offset: 3px;
+}
+
+.workspace-switcher button[data-load-state="loading"]::after,
+.workspace-switcher button[data-load-state="error"]::after {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  content: "";
+}
+
+.workspace-switcher button[data-load-state="loading"]::after {
+  border: 1px solid rgba(107, 81, 210, 0.24);
+  border-top-color: #7055d7;
+  animation: workspace-nav-loading 720ms linear infinite;
+}
+
+.workspace-switcher button[data-load-state="error"]::after {
+  background: #bd3f69;
+  box-shadow: 0 0 0 4px rgba(189, 63, 105, 0.09);
+}
+
+@keyframes workspace-panel-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes workspace-nav-loading {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 720px) {
+  .global-header {
+    gap: 9px;
+    padding: 10px 14px 12px;
+  }
+
+  .workspace-switcher {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    justify-self: stretch;
+    gap: 5px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-padding-inline: 4px;
+    scroll-snap-type: x proximity;
+    scrollbar-color: rgba(108, 81, 219, 0.24) transparent;
+    scrollbar-width: thin;
+  }
+
+  .workspace-switcher button {
+    min-width: min(164px, 47vw);
+    min-height: 48px;
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    scroll-snap-align: start;
+  }
+
+  .workspace-switcher button strong {
+    font-size: 0.7rem;
+  }
+
+  .context-nav {
+    padding-inline: 14px;
+    scrollbar-color: rgba(108, 81, 219, 0.24) transparent;
+    scrollbar-width: thin;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-panel:not([hidden]),
+  .workspace-switcher button[data-load-state="loading"]::after {
+    animation: none;
+  }
+}

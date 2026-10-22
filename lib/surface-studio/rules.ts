@@ -1,4 +1,11 @@
-import { suitConcepts, type MissionId } from "./catalog.ts";
+import {
+  bootStyles,
+  palettes,
+  pantsStyles,
+  suitConcepts,
+  torsoStyles,
+  type MissionId,
+} from "./catalog.ts";
 
 export type TerrainId = "level" | "rocky" | "slope" | "dusty";
 export type TaskId = "survey" | "geology" | "construction" | "mobility";
@@ -89,6 +96,43 @@ export const DEFAULT_STUDIO_CONFIGURATION: StudioConfiguration = {
   accessoryBatteryWh: 180,
 };
 
+const conceptIds = new Set<StudioConfiguration["conceptId"]>([
+  ...suitConcepts.map((concept) => concept.id),
+]);
+const paletteIds = new Set<StudioConfiguration["paletteId"]>([
+  ...palettes.map((palette) => palette.id),
+]);
+const pantsIds = new Set<StudioConfiguration["pantsStyle"]>([
+  ...pantsStyles.map((style) => style.id),
+]);
+const torsoIds = new Set<TorsoStyleId>(
+  torsoStyles.map((style) => style.id),
+);
+const bootIds = new Set<BootStyleId>(bootStyles.map((style) => style.id));
+const bodyIds = new Set<BodyPresetId>(["compact", "standard", "tall"]);
+const missionIds = new Set<MissionId>(["moon", "mars", "earth", "high-gravity"]);
+const terrainIds = new Set<TerrainId>(["level", "rocky", "slope", "dusty"]);
+const taskIds = new Set<TaskId>(["survey", "geology", "construction", "mobility"]);
+const lightIds = new Set<LightingId>(["sun", "shade", "mixed"]);
+
+function cloneDefaultStudioConfiguration(): StudioConfiguration {
+  return {
+    ...DEFAULT_STUDIO_CONFIGURATION,
+    accessories: { ...DEFAULT_STUDIO_CONFIGURATION.accessories },
+  };
+}
+
+function booleanOrDefault(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function isMember<T extends string>(
+  values: ReadonlySet<T>,
+  value: unknown,
+): value is T {
+  return typeof value === "string" && values.has(value as T);
+}
+
 export const gravityByMission: Record<MissionId, number> = {
   moon: 1.62,
   mars: 3.71,
@@ -118,49 +162,56 @@ const accessoryAssumptions = {
   shoulderCamera: { massKg: 0.9, powerW: 14 },
   tetherReel: { massKg: 1.2, powerW: 0 },
   sampleKit: { massKg: 2.4, powerW: 0 },
-} as const;
+} as const satisfies Readonly<
+  Record<keyof StudioAccessories, { massKg: number; powerW: number }>
+>;
 
 export { accessoryAssumptions, bodyMassKg };
 
+const suitConceptById = new Map(
+  suitConcepts.map((concept) => [concept.id, concept]),
+);
+
 function conceptById(id: StudioConfiguration["conceptId"]) {
-  return suitConcepts.find((concept) => concept.id === id) ?? suitConcepts[0];
+  return suitConceptById.get(id) ?? suitConcepts[0];
 }
 
 export function normalizeStudioConfiguration(
   value: unknown,
 ): StudioConfiguration {
-  if (!value || typeof value !== "object") return structuredClone(DEFAULT_STUDIO_CONFIGURATION);
+  if (!value || typeof value !== "object") return cloneDefaultStudioConfiguration();
   const candidate = value as Partial<StudioConfiguration>;
-  const conceptIds = new Set(["selene", "areo", "vector"]);
-  const paletteIds = new Set(["pearl", "champagne", "signal", "obsidian"]);
-  const pantsIds = new Set(["contour", "field", "mobility"]);
-  const torsoIds = new Set(["streamline", "field-rig", "adaptive"]);
-  const bootIds = new Set(["traverse", "rock", "stability"]);
-  const bodyIds = new Set(["compact", "standard", "tall"]);
-  const missionIds = new Set(["moon", "mars", "earth", "high-gravity"]);
-  const terrainIds = new Set(["level", "rocky", "slope", "dusty"]);
-  const taskIds = new Set(["survey", "geology", "construction", "mobility"]);
-  const lightIds = new Set(["sun", "shade", "mixed"]);
+  // Missing versions are accepted as the legacy v1 shape. A newer explicit
+  // version must not be guessed at by an older client.
+  if (candidate.version !== undefined && candidate.version !== 1) {
+    return cloneDefaultStudioConfiguration();
+  }
   const base = DEFAULT_STUDIO_CONFIGURATION;
-  const accessories = candidate.accessories ?? base.accessories;
-  const conceptId = conceptIds.has(candidate.conceptId ?? "")
-    ? candidate.conceptId!
+  const accessories =
+    candidate.accessories && typeof candidate.accessories === "object"
+      ? (candidate.accessories as Partial<StudioAccessories>)
+      : base.accessories;
+  const conceptId = isMember(conceptIds, candidate.conceptId)
+    ? candidate.conceptId
     : base.conceptId;
   const normalizedAccessories: StudioAccessories = {
-    catEars: Boolean(accessories.catEars),
-    staff: Boolean(accessories.staff),
-    assist: Boolean(accessories.assist),
-    dust: Boolean(accessories.dust),
-    haptics: Boolean(accessories.haptics),
-    shoulderCamera: Boolean(accessories.shoulderCamera),
-    tetherReel:
-      typeof accessories.tetherReel === "boolean"
-        ? accessories.tetherReel
-        : base.accessories.tetherReel,
-    sampleKit:
-      typeof accessories.sampleKit === "boolean"
-        ? accessories.sampleKit
-        : base.accessories.sampleKit,
+    catEars: booleanOrDefault(accessories.catEars, base.accessories.catEars),
+    staff: booleanOrDefault(accessories.staff, base.accessories.staff),
+    assist: booleanOrDefault(accessories.assist, base.accessories.assist),
+    dust: booleanOrDefault(accessories.dust, base.accessories.dust),
+    haptics: booleanOrDefault(accessories.haptics, base.accessories.haptics),
+    shoulderCamera: booleanOrDefault(
+      accessories.shoulderCamera,
+      base.accessories.shoulderCamera,
+    ),
+    tetherReel: booleanOrDefault(
+      accessories.tetherReel,
+      base.accessories.tetherReel,
+    ),
+    sampleKit: booleanOrDefault(
+      accessories.sampleKit,
+      base.accessories.sampleKit,
+    ),
   };
   if (conceptId === "vector") {
     (Object.keys(normalizedAccessories) as Array<keyof StudioAccessories>).forEach(
@@ -173,15 +224,15 @@ export function normalizeStudioConfiguration(
   return {
     version: 1,
     conceptId,
-    paletteId: paletteIds.has(candidate.paletteId ?? "") ? candidate.paletteId! : base.paletteId,
-    pantsStyle: pantsIds.has(candidate.pantsStyle ?? "") ? candidate.pantsStyle! : base.pantsStyle,
-    torsoStyle: torsoIds.has(candidate.torsoStyle ?? "") ? candidate.torsoStyle! : base.torsoStyle,
-    bootStyle: bootIds.has(candidate.bootStyle ?? "") ? candidate.bootStyle! : base.bootStyle,
-    bodyPreset: bodyIds.has(candidate.bodyPreset ?? "") ? candidate.bodyPreset! : base.bodyPreset,
-    mission: missionIds.has(candidate.mission ?? "") ? candidate.mission! : base.mission,
-    terrain: terrainIds.has(candidate.terrain ?? "") ? candidate.terrain! : base.terrain,
-    task: taskIds.has(candidate.task ?? "") ? candidate.task! : base.task,
-    lighting: lightIds.has(candidate.lighting ?? "") ? candidate.lighting! : base.lighting,
+    paletteId: isMember(paletteIds, candidate.paletteId) ? candidate.paletteId : base.paletteId,
+    pantsStyle: isMember(pantsIds, candidate.pantsStyle) ? candidate.pantsStyle : base.pantsStyle,
+    torsoStyle: isMember(torsoIds, candidate.torsoStyle) ? candidate.torsoStyle : base.torsoStyle,
+    bootStyle: isMember(bootIds, candidate.bootStyle) ? candidate.bootStyle : base.bootStyle,
+    bodyPreset: isMember(bodyIds, candidate.bodyPreset) ? candidate.bodyPreset : base.bodyPreset,
+    mission: isMember(missionIds, candidate.mission) ? candidate.mission : base.mission,
+    terrain: isMember(terrainIds, candidate.terrain) ? candidate.terrain : base.terrain,
+    task: isMember(taskIds, candidate.task) ? candidate.task : base.task,
+    lighting: isMember(lightIds, candidate.lighting) ? candidate.lighting : base.lighting,
     mode:
       conceptId === "vector"
         ? "assembly"
@@ -213,7 +264,7 @@ export function decodeStudioConfiguration(serialized: string): StudioConfigurati
   try {
     return normalizeStudioConfiguration(JSON.parse(serialized));
   } catch {
-    return structuredClone(DEFAULT_STUDIO_CONFIGURATION);
+    return cloneDefaultStudioConfiguration();
   }
 }
 

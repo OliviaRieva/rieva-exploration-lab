@@ -164,8 +164,13 @@ export const centralBodies: readonly CentralBodyDefinition[] = [
   },
 ] as const;
 
+const centralBodyById = new Map<CentralBodyId, CentralBodyDefinition>(
+  centralBodies.map((body) => [body.id, body]),
+);
+const defaultCentralBody = centralBodyById.get("earth")!;
+
 export function getCentralBody(id: CentralBodyId): CentralBodyDefinition {
-  return centralBodies.find((body) => body.id === id) ?? centralBodies[2];
+  return centralBodyById.get(id) ?? defaultCentralBody;
 }
 
 export type SpacecraftDesignId = "ion-scout" | "hall-tug" | "cargo-spiraler";

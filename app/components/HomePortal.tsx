@@ -9,6 +9,8 @@ export type PortalDestination = "orbital" | "black-hole" | "surface" | "contact"
 
 export interface HomePortalProps {
   onNavigate: (destination: PortalDestination) => void;
+  onPreload?: (destination: PortalDestination) => void;
+  onReady?: () => void;
 }
 
 type PortalDefinition = {
@@ -218,10 +220,14 @@ function PortalArtwork({ destination }: { destination: PortalDestination }) {
   return <ContactArtwork />;
 }
 
-export function HomePortal({ onNavigate }: HomePortalProps) {
+export function HomePortal({ onNavigate, onPreload, onReady }: HomePortalProps) {
   const [departing, setDeparting] = useState<PortalDestination | null>(null);
   const [transitionOrigin, setTransitionOrigin] = useState({ x: 0, y: 0 });
   const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    onReady?.();
+  }, [onReady]);
 
   useEffect(() => {
     return () => {
@@ -231,6 +237,7 @@ export function HomePortal({ onNavigate }: HomePortalProps) {
 
   const navigate = (destination: PortalDestination, source: HTMLButtonElement) => {
     if (departing) return;
+    onPreload?.(destination);
 
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       onNavigate(destination);
@@ -284,7 +291,7 @@ export function HomePortal({ onNavigate }: HomePortalProps) {
           </span>
         </div>
         <p className={styles.eyebrow}>Independent exploration systems laboratory</p>
-        <h1 id="rieva-home-title">
+        <h1 id="rieva-home-title" tabIndex={-1}>
           Design the journey.<br />
           <span>Test the edge.</span>
         </h1>
@@ -310,6 +317,9 @@ export function HomePortal({ onNavigate }: HomePortalProps) {
               data-muted={departing && !isDeparting ? "true" : undefined}
               type="button"
               key={portal.destination}
+              onPointerEnter={() => onPreload?.(portal.destination)}
+              onPointerDown={() => onPreload?.(portal.destination)}
+              onFocus={() => onPreload?.(portal.destination)}
               onClick={(event) => navigate(portal.destination, event.currentTarget)}
               aria-label={`Open ${portal.title}: ${portal.description}`}
               disabled={Boolean(departing && !isDeparting)}

@@ -2,6 +2,13 @@ export const GRAVITATIONAL_CONSTANT = 6.6743e-11;
 export const SPEED_OF_LIGHT_MPS = 299_792_458;
 export const SOLAR_MASS_KG = 1.98847e30;
 
+const SOLAR_GRAVITATIONAL_RADIUS_KM =
+  (GRAVITATIONAL_CONSTANT * SOLAR_MASS_KG) /
+  SPEED_OF_LIGHT_MPS ** 2 /
+  1_000;
+const SOLAR_GRAVITATIONAL_TIME_S =
+  (GRAVITATIONAL_CONSTANT * SOLAR_MASS_KG) / SPEED_OF_LIGHT_MPS ** 3;
+
 export type OrbitDirection = "prograde" | "retrograde";
 export type ProbeKind = "spacecraft" | "astronaut" | "star" | "photon";
 
@@ -85,8 +92,10 @@ export function clampSpin(spin: number) {
 }
 
 export function gravitationalRadiusKm(massSolar: number) {
-  const massKg = Math.max(0, massSolar) * SOLAR_MASS_KG;
-  return (GRAVITATIONAL_CONSTANT * massKg) / SPEED_OF_LIGHT_MPS ** 2 / 1_000;
+  if (!Number.isFinite(massSolar) || massSolar <= 0) return 0;
+  // Multiplying by the one-solar-mass scale avoids overflowing the
+  // intermediate kilogram value for otherwise representable large inputs.
+  return SOLAR_GRAVITATIONAL_RADIUS_KM * massSolar;
 }
 
 export function lightCrossingTimeSeconds(massSolar: number) {
@@ -95,7 +104,7 @@ export function lightCrossingTimeSeconds(massSolar: number) {
 
 export function ergosphereRadiusRg(spinInput: number, polarAngleRad: number) {
   const spin = clampSpin(spinInput);
-  const cosine = Math.cos(polarAngleRad);
+  const cosine = Math.cos(Number.isFinite(polarAngleRad) ? polarAngleRad : 0);
   return 1 + Math.sqrt(Math.max(0, 1 - spin ** 2 * cosine ** 2));
 }
 
@@ -124,6 +133,7 @@ export function kerrRadii(spinInput: number): KerrRadii {
 }
 
 export function radiusRgToKm(radiusRg: number, massSolar: number) {
+  if (!Number.isFinite(radiusRg) || radiusRg <= 0) return 0;
   return radiusRg * gravitationalRadiusKm(massSolar);
 }
 
@@ -136,10 +146,21 @@ export function approximateTidalDifferentialMps2(
   radiusRg: number,
   lengthM: number,
 ) {
-  if (lengthM <= 0 || massSolar <= 0 || radiusRg <= 0) return 0;
-  const massKg = massSolar * SOLAR_MASS_KG;
-  const radiusM = radiusRgToKm(radiusRg, massSolar) * 1_000;
-  return (2 * GRAVITATIONAL_CONSTANT * massKg * lengthM) / radiusM ** 3;
+  if (
+    !Number.isFinite(lengthM) ||
+    !Number.isFinite(massSolar) ||
+    !Number.isFinite(radiusRg) ||
+    lengthM <= 0 ||
+    massSolar <= 0 ||
+    radiusRg <= 0
+  ) {
+    return 0;
+  }
+  const gravitationalRadiusM = gravitationalRadiusKm(massSolar) * 1_000;
+  const result =
+    (2 * SPEED_OF_LIGHT_MPS ** 2 * lengthM) /
+    (radiusRg ** 3 * gravitationalRadiusM ** 2);
+  return Number.isNaN(result) ? 0 : result;
 }
 
 export function equatorialCircularPeriodSeconds(
@@ -148,13 +169,19 @@ export function equatorialCircularPeriodSeconds(
   spinInput: number,
   direction: OrbitDirection,
 ) {
-  if (massSolar <= 0 || radiusRg <= 0) return null;
+  if (
+    !Number.isFinite(massSolar) ||
+    !Number.isFinite(radiusRg) ||
+    massSolar <= 0 ||
+    radiusRg <= 0
+  ) {
+    return null;
+  }
   const spin = clampSpin(spinInput);
-  const signedSpin = direction === "prograde" ? spin : -spin;
-  const denominator = Math.max(1e-6, radiusRg ** 1.5 + signedSpin);
-  const geometricTime =
-    (GRAVITATIONAL_CONSTANT * massSolar * SOLAR_MASS_KG) /
-    SPEED_OF_LIGHT_MPS ** 3;
+  const signedSpin = direction === "retrograde" ? -spin : spin;
+  const denominator = radiusRg ** 1.5 + signedSpin;
+  if (!Number.isFinite(denominator) || denominator <= 0) return null;
+  const geometricTime = SOLAR_GRAVITATIONAL_TIME_S * massSolar;
   return 2 * Math.PI * geometricTime * denominator;
 }
 
@@ -167,26 +194,40 @@ function tidalBandFor(value: number | null): OrbitAssessment["tidalBand"] {
 }
 
 export function assessOrbit(input: OrbitAssessmentInput): OrbitAssessment {
-  const massSolar = Math.max(0.1, input.massSolar);
+  const massSolar =
+    Number.isFinite(input.massSolar) && input.massSolar > 0
+      ? Math.max(0.1, input.massSolar)
+      : 0.1;
   const spin = clampSpin(input.spin);
+  const direction: OrbitDirection =
+    input.direction === "retrograde" ? "retrograde" : "prograde";
+  const probeKind: ProbeKind = Object.prototype.hasOwnProperty.call(
+    probeDefinitions,
+    input.probeKind,
+  )
+    ? input.probeKind
+    : "spacecraft";
   const radii = kerrRadii(spin);
   const selectedIscoRg =
-    input.direction === "prograde"
+    direction === "prograde"
       ? radii.progradeIscoRg
       : radii.retrogradeIscoRg;
   const selectedPhotonRg =
-    input.direction === "prograde"
+    direction === "prograde"
       ? radii.progradePhotonRg
       : radii.retrogradePhotonRg;
-  const radiusRg = Math.max(0.1, input.radiusRg);
-  const definition = probeDefinitions[input.probeKind];
+  const radiusRg =
+    Number.isFinite(input.radiusRg) && input.radiusRg > 0
+      ? Math.max(0.1, input.radiusRg)
+      : 0.1;
+  const definition = probeDefinitions[probeKind];
   const coordinateRadiusM = radiusRgToKm(radiusRg, massSolar) * 1_000;
   const extentRatio =
     coordinateRadiusM > 0 ? definition.lengthM / coordinateRadiusM : Infinity;
   const outsideLocalTidalDomain =
-    input.probeKind !== "photon" && extentRatio > 0.1;
+    probeKind !== "photon" && extentRatio > 0.1;
   const tidalDifferentialMps2 =
-    input.probeKind === "photon" || outsideLocalTidalDomain
+    probeKind === "photon" || outsideLocalTidalDomain
       ? null
       : approximateTidalDifferentialMps2(
           massSolar,
@@ -195,7 +236,7 @@ export function assessOrbit(input: OrbitAssessmentInput): OrbitAssessment {
         );
   const tidalBand = tidalBandFor(tidalDifferentialMps2);
   const tidalNote =
-    input.probeKind === "photon"
+    probeKind === "photon"
       ? "Tidal acceleration across a finite body does not apply to this photon marker."
       : outsideLocalTidalDomain
         ? "Not estimated: the selected object is too large compared with this coordinate radius for the local small-separation approximation. A relativistic extended-body model would be required."
@@ -226,7 +267,7 @@ export function assessOrbit(input: OrbitAssessmentInput): OrbitAssessment {
     };
   }
 
-  if (input.probeKind === "photon") {
+  if (probeKind === "photon") {
     const fractionalOffset = Math.abs(radiusRg - selectedPhotonRg) / selectedPhotonRg;
     if (fractionalOffset <= 1e-6) {
       return {
@@ -298,7 +339,7 @@ export function assessOrbit(input: OrbitAssessmentInput): OrbitAssessment {
         massSolar,
         radiusRg,
         spin,
-        input.direction,
+        direction,
       ),
       animationMode: "orbit",
     };
@@ -334,7 +375,7 @@ export function assessOrbit(input: OrbitAssessmentInput): OrbitAssessment {
       massSolar,
       radiusRg,
       spin,
-      input.direction,
+      direction,
     ),
     animationMode: "orbit",
   };

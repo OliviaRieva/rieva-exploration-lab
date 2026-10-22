@@ -97,6 +97,11 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+function preferredScenePixelRatio() {
+  const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  return Math.min(window.devicePixelRatio || 1, coarsePointer ? 1.5 : 1.75);
+}
+
 function radiusOf(sample: OrbitSceneSample) {
   return Math.hypot(sample.xM, sample.yM, sample.zM ?? 0);
 }
@@ -1344,6 +1349,7 @@ export function OrbitScene({
   const [viewMode, setViewMode] = useState<ViewMode>("oblique");
   const [follow, setFollow] = useState(false);
   const [viewport, setViewport] = useState({ width: 0, height: 0, dpr: 1 });
+  const [isRenderable, setIsRenderable] = useState(true);
 
   const referenceCurrent = useMemo(
     () => interpolateSample(reference, currentTimeS),
@@ -1383,9 +1389,11 @@ export function OrbitScene({
       const bounds = canvas.getBoundingClientRect();
       const width = Math.max(1, Math.round(bounds.width));
       const height = Math.max(1, Math.round(bounds.height));
-      const dpr = clamp(window.devicePixelRatio || 1, 1, 2);
-      canvas.width = Math.round(width * dpr);
-      canvas.height = Math.round(height * dpr);
+      const dpr = preferredScenePixelRatio();
+      const pixelWidth = Math.round(width * dpr);
+      const pixelHeight = Math.round(height * dpr);
+      if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+      if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
       setViewport((previous) =>
         previous.width === width &&
         previous.height === height &&
@@ -1398,12 +1406,37 @@ export function OrbitScene({
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
-    return () => observer.disconnect();
+    window.addEventListener("resize", resize, { passive: true });
+
+    let intersecting = true;
+    let documentVisible = document.visibilityState !== "hidden";
+    const syncVisibility = () => setIsRenderable(intersecting && documentVisible);
+    const visibilityObserver = new IntersectionObserver(
+      ([entry]) => {
+        intersecting = Boolean(entry?.isIntersecting);
+        syncVisibility();
+      },
+      { rootMargin: "120px", threshold: 0.01 },
+    );
+    visibilityObserver.observe(canvas);
+    const onVisibilityChange = () => {
+      documentVisible = document.visibilityState !== "hidden";
+      syncVisibility();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    syncVisibility();
+
+    return () => {
+      observer.disconnect();
+      visibilityObserver.disconnect();
+      window.removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || viewport.width <= 0 || viewport.height <= 0) return;
+    if (!canvas || !isRenderable || viewport.width <= 0 || viewport.height <= 0) return;
     const context = canvas.getContext("2d");
     if (!context) return;
 
@@ -1438,6 +1471,7 @@ export function OrbitScene({
     spacecraftDesign,
     interrupted,
     interruptedCurrent,
+    isRenderable,
     maxRadius,
     outage,
     reference,

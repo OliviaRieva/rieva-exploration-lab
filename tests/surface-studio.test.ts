@@ -2,11 +2,46 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_STUDIO_CONFIGURATION,
+  accessoryAssumptions,
   decodeStudioConfiguration,
   encodeStudioConfiguration,
   evaluateStudioConfiguration,
   normalizeStudioConfiguration,
 } from "../lib/surface-studio/rules.ts";
+import {
+  equipmentCatalog,
+  palettes,
+  references,
+  suitConcepts,
+} from "../lib/surface-studio/catalog.ts";
+
+function assertUniqueIds(items: readonly { id: string }[], label: string) {
+  const ids = items.map((item) => item.id);
+  assert.equal(new Set(ids).size, ids.length, `${label} ids must be unique`);
+}
+
+test("missionwear catalogs have unique ids and valid internal references", () => {
+  assertUniqueIds(references, "reference");
+  assertUniqueIds(equipmentCatalog, "equipment");
+  assertUniqueIds(palettes, "palette");
+  assertUniqueIds(suitConcepts, "concept");
+
+  const referenceIds = new Set(references.map((reference) => reference.id));
+  for (const item of equipmentCatalog) {
+    for (const sourceId of item.sourceIds) {
+      assert.ok(referenceIds.has(sourceId), `${item.id} references ${sourceId}`);
+    }
+  }
+  const paletteIds = new Set(palettes.map((palette) => palette.id));
+  for (const concept of suitConcepts) {
+    assert.ok(paletteIds.has(concept.paletteId), `${concept.id} palette exists`);
+    assert.ok(concept.equipmentMassKg > 0);
+  }
+  assert.deepEqual(
+    Object.keys(accessoryAssumptions).sort(),
+    Object.keys(DEFAULT_STUDIO_CONFIGURATION.accessories).sort(),
+  );
+});
 
 test("configuration JSON round-trips through the validated persistence format", () => {
   const configured = normalizeStudioConfiguration({
@@ -141,6 +176,30 @@ test("an obsidian EVA exterior keeps its thermal conflict in shade", () => {
 
 test("invalid saved data falls back without throwing", () => {
   assert.deepEqual(decodeStudioConfiguration("{oops"), DEFAULT_STUDIO_CONFIGURATION);
+});
+
+test("persistence rejects future schemas and truthy non-boolean accessory values", () => {
+  const future = normalizeStudioConfiguration({
+    ...DEFAULT_STUDIO_CONFIGURATION,
+    version: 2,
+    paletteId: "obsidian",
+  });
+  assert.deepEqual(future, DEFAULT_STUDIO_CONFIGURATION);
+
+  const normalized = normalizeStudioConfiguration({
+    ...DEFAULT_STUDIO_CONFIGURATION,
+    accessories: {
+      staff: "false",
+      assist: "true",
+    },
+  });
+  assert.equal(normalized.accessories.staff, true, "invalid staff value uses its default");
+  assert.equal(normalized.accessories.assist, false, "invalid assist value uses its default");
+  assert.equal(
+    normalized.accessories.tetherReel,
+    true,
+    "omitted v1 keys acquire their defined defaults",
+  );
 });
 
 test("invalid tailoring and mission selections are normalized safely", () => {

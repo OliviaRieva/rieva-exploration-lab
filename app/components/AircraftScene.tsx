@@ -65,6 +65,38 @@ const PART_NAME_RULES: ReadonlyArray<[RegExp, string]> = [
   [/PART_FUSELAGE/i, "fuselage"],
 ];
 
+function preferredScenePixelRatio() {
+  const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  return Math.min(window.devicePixelRatio || 1, coarsePointer ? 1.5 : 1.75);
+}
+
+function disposeSceneGraph(root: THREE.Object3D) {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
+  root.traverse((object) => {
+    const renderable = object as THREE.Object3D & {
+      geometry?: THREE.BufferGeometry;
+      material?: THREE.Material | THREE.Material[];
+    };
+    if (renderable.geometry) geometries.add(renderable.geometry);
+    const objectMaterials = renderable.material
+      ? Array.isArray(renderable.material)
+        ? renderable.material
+        : [renderable.material]
+      : [];
+    objectMaterials.forEach((material) => {
+      materials.add(material);
+      Object.values(material).forEach((value) => {
+        if (value instanceof THREE.Texture) textures.add(value);
+      });
+    });
+  });
+  geometries.forEach((geometry) => geometry.dispose());
+  textures.forEach((texture) => texture.dispose());
+  materials.forEach((material) => material.dispose());
+}
+
 function readablePartId(object: THREE.Object3D) {
   const moduleId = object.userData.module_id as string | undefined;
   if (moduleId && ASSET_MODULE_TO_CONFIG[moduleId]) return ASSET_MODULE_TO_CONFIG[moduleId];
@@ -85,8 +117,11 @@ function readablePartId(object: THREE.Object3D) {
 }
 
 function cloneMaterials(root: THREE.Object3D) {
+  const sourceMaterials = new Set<THREE.Material>();
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
+    const originals = Array.isArray(object.material) ? object.material : [object.material];
+    originals.forEach((material) => sourceMaterials.add(material));
     object.material = Array.isArray(object.material)
       ? object.material.map((material) => material.clone())
       : object.material.clone();
@@ -104,6 +139,7 @@ function cloneMaterials(root: THREE.Object3D) {
     object.castShadow = true;
     object.receiveShadow = true;
   });
+  sourceMaterials.forEach((material) => material.dispose());
 }
 
 function createLoftGeometry(
@@ -510,13 +546,16 @@ function alignExhaustToAsset(
   exhaust: THREE.Group,
 ) {
   model.updateWorldMatrix(true, true);
+  const anchorPosition = new THREE.Vector3();
+  const plumeOffset = new THREE.Vector3();
   for (const child of exhaust.children) {
     const anchorName = child.userData.anchorName as string | undefined;
     const anchor = anchorName ? model.getObjectByName(anchorName) : null;
     if (!anchor) continue;
-    const anchorPosition = anchor.getWorldPosition(new THREE.Vector3());
+    anchor.getWorldPosition(anchorPosition);
     const length = Number(child.userData.plumeLength ?? 0);
-    child.position.copy(anchorPosition).add(new THREE.Vector3(0, 0, length / 2));
+    plumeOffset.set(0, 0, length / 2);
+    child.position.copy(anchorPosition).add(plumeOffset);
   }
 }
 
@@ -540,6 +579,12 @@ export function AircraftScene({
   className,
 }: AircraftSceneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef(active);
+  const animationControlRef = useRef<{
+    start: () => void;
+    stop: () => void;
+    renderOnce: () => void;
+  } | null>(null);
   const livePropsRef = useRef({
     configuration,
     selectedPartId,
@@ -553,7 +598,13 @@ export function AircraftScene({
       airflowRunning,
       onSelectPart,
     };
+    animationControlRef.current?.renderOnce();
   }, [airflowRunning, configuration, onSelectPart, selectedPartId]);
+  useEffect(() => {
+    activeRef.current = active;
+    if (active) animationControlRef.current?.start();
+    else animationControlRef.current?.stop();
+  }, [active]);
   const sceneStateRef = useRef<{
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
@@ -578,13 +629,21 @@ export function AircraftScene({
     const host = hostRef.current;
     if (!host) return;
     let disposed = false;
-    let frame = 0;
+    let frame: number | null = null;
+    let inViewport = true;
+    let documentVisible = !document.hidden;
+    let requestRender = () => undefined;
+    const assetAbortController = new AbortController();
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0xeef0fc, 0.012);
     const camera = new THREE.PerspectiveCamera(31, 1, 0.1, 120);
     camera.position.copy(cameraPosition("perspective"));
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: "high-performance",
+    });
+    renderer.setPixelRatio(preferredScenePixelRatio());
     renderer.setClearColor(0x000000, 0);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -738,18 +797,29 @@ export function AircraftScene({
       );
     };
 
-    new GLTFLoader().load(
-      "/models/rieva-aeris-x.glb",
-      (gltf) => {
-        if (disposed) return;
+    const aircraftLoader = new GLTFLoader();
+    void fetch("/models/rieva-aeris-x.glb", {
+      signal: assetAbortController.signal,
+      cache: "force-cache",
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Aircraft asset request failed (${response.status})`);
+        return response.arrayBuffer();
+      })
+      .then((buffer) => aircraftLoader.parseAsync(buffer, "/models/"))
+      .then((gltf) => {
+        if (disposed) {
+          disposeSceneGraph(gltf.scene);
+          return;
+        }
         registerModel(gltf.scene, false);
-      },
-      undefined,
-      () => {
-        if (disposed) return;
+        requestRender();
+      })
+      .catch((error: unknown) => {
+        if (disposed || (error instanceof DOMException && error.name === "AbortError")) return;
         registerModel(createFallbackAircraft(), true);
-      },
-    );
+        requestRender();
+      });
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -782,24 +852,48 @@ export function AircraftScene({
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
     renderer.domElement.addEventListener("pointerup", onPointerUp);
 
+    let lastWidth = 0;
+    let lastHeight = 0;
+    let lastPixelRatio = 0;
     const resize = () => {
-      const width = Math.max(1, host.clientWidth);
-      const height = Math.max(1, host.clientHeight);
+      const width = Math.max(1, Math.round(host.clientWidth));
+      const height = Math.max(1, Math.round(host.clientHeight));
+      const pixelRatio = preferredScenePixelRatio();
+      if (
+        width === lastWidth &&
+        height === lastHeight &&
+        pixelRatio === lastPixelRatio
+      ) return;
+      lastWidth = width;
+      lastHeight = height;
+      lastPixelRatio = pixelRatio;
+      renderer.setPixelRatio(pixelRatio);
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
+      requestRender();
     };
     const observer = new ResizeObserver(resize);
     observer.observe(host);
+    window.addEventListener("resize", resize, { passive: true });
     resize();
 
-    const clock = new THREE.Clock();
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let reducedMotion = reducedMotionQuery.matches;
+    controls.enableDamping = !reducedMotion;
     const neutralEmissive = new THREE.Color(0x000000);
     const highlightedEmissive = new THREE.Color(0x7056d8);
+    const selectedBounds = new THREE.Box3();
+    let elapsed = 0;
+    let previousTime = performance.now();
+    const shouldRenderContinuously = () =>
+      activeRef.current && inViewport && documentVisible && !reducedMotion;
     const render = () => {
+      frame = null;
       if (disposed) return;
-      const elapsed = clock.getElapsedTime();
+      const now = performance.now();
+      elapsed += Math.min(0.05, Math.max(0, (now - previousTime) / 1_000));
+      previousTime = now;
       const live = livePropsRef.current;
       updateStreamlines(
         streams,
@@ -808,7 +902,7 @@ export function AircraftScene({
         live.configuration.speedMps,
         live.configuration.angleOfAttackDeg,
       );
-      const selectedBounds = new THREE.Box3();
+      selectedBounds.makeEmpty();
       let hasSelectedBounds = false;
       interactive.forEach(({ object, partId }) => {
         if (partId === live.selectedPartId && object.visible) {
@@ -845,29 +939,83 @@ export function AircraftScene({
       });
       controls.update();
       renderer.render(scene, camera);
-      if (active) frame = requestAnimationFrame(render);
+      if (shouldRenderContinuously()) requestRender();
     };
-    render();
+
+    requestRender = () => {
+      if (
+        disposed ||
+        frame !== null ||
+        !activeRef.current ||
+        !inViewport ||
+        !documentVisible
+      ) return;
+      frame = window.requestAnimationFrame(render);
+    };
+    const stopRendering = () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      frame = null;
+    };
+    const syncRendering = () => {
+      if (activeRef.current && inViewport && documentVisible) {
+        previousTime = performance.now();
+        requestRender();
+      } else {
+        stopRendering();
+      }
+    };
+    animationControlRef.current = {
+      start: syncRendering,
+      stop: stopRendering,
+      renderOnce: requestRender,
+    };
+
+    const onControlsChange = () => requestRender();
+    controls.addEventListener("change", onControlsChange);
+    const onVisibilityChange = () => {
+      documentVisible = document.visibilityState !== "hidden";
+      syncRendering();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const visibilityObserver = new IntersectionObserver(
+      ([entry]) => {
+        inViewport = Boolean(entry?.isIntersecting);
+        syncRendering();
+      },
+      { rootMargin: "120px", threshold: 0.01 },
+    );
+    visibilityObserver.observe(host);
+    const onReducedMotionChange = (event: MediaQueryListEvent) => {
+      reducedMotion = event.matches;
+      controls.enableDamping = !reducedMotion;
+      syncRendering();
+    };
+    reducedMotionQuery.addEventListener("change", onReducedMotionChange);
+    syncRendering();
 
     return () => {
       disposed = true;
-      cancelAnimationFrame(frame);
+      assetAbortController.abort();
+      stopRendering();
       observer.disconnect();
+      visibilityObserver.disconnect();
+      window.removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      reducedMotionQuery.removeEventListener("change", onReducedMotionChange);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
+      controls.removeEventListener("change", onControlsChange);
       controls.dispose();
-      scene.traverse((object) => {
-        if (!(object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.LineSegments)) return;
-        object.geometry?.dispose();
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => material.dispose());
-      });
-      renderer.dispose();
+      scene.environment = null;
+      disposeSceneGraph(scene);
       environmentTarget.dispose();
+      renderer.dispose();
+      renderer.forceContextLoss();
+      animationControlRef.current = null;
       sceneStateRef.current = null;
       host.replaceChildren();
     };
-  }, [active]); // The persistent scene is rebuilt only when its workspace activates/deactivates.
+  }, []); // Keep the expensive GLB scene resident; activity only gates rendering.
 
   useEffect(() => {
     const state = sceneStateRef.current;
@@ -897,6 +1045,7 @@ export function AircraftScene({
         object.visible = enabled;
       });
     }
+    animationControlRef.current?.renderOnce();
   }, [configuration, result.mach, status]);
 
   useEffect(() => {
@@ -917,6 +1066,7 @@ export function AircraftScene({
       if (partId === "compressor" || partId === "nozzles") object.position.y -= 0.5;
       if (ASSET_MODULE_TO_CONFIG[object.userData.module_id as string]) object.position.y += 0.7;
     });
+    animationControlRef.current?.renderOnce();
   }, [assemblyMode, status]);
 
   useEffect(() => {
@@ -926,6 +1076,7 @@ export function AircraftScene({
     state.camera.position.copy(position);
     state.controls.target.set(0, 0, 0);
     state.controls.update();
+    animationControlRef.current?.renderOnce();
   }, [cameraPreset, cameraRequestKey, status]);
 
   return (

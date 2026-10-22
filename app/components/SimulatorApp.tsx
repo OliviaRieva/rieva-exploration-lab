@@ -208,12 +208,39 @@ function finalAltitudeKm(scenario: ScenarioResult) {
   return scenario.series.altitudeM[index] / 1_000;
 }
 
+function visualSampleIndices(
+  scenario: ScenarioResult,
+  maximum: number,
+) {
+  const length = scenario.series.validLength;
+  if (length <= maximum) return Array.from({ length }, (_, index) => index);
+
+  const indices = new Set<number>([0, length - 1]);
+  const interval = (length - 1) / Math.max(1, maximum - 1);
+  for (let slot = 1; slot < maximum - 1; slot += 1) {
+    indices.add(Math.round(slot * interval));
+  }
+
+  // Preserve the samples surrounding thrust changes so an interruption,
+  // target cutoff, or propellant exhaustion remains visually exact after the
+  // display-only series is reduced. The full solver output is still retained
+  // for metrics and CSV export.
+  for (let index = 1; index < length; index += 1) {
+    if (scenario.series.thrustN[index] === scenario.series.thrustN[index - 1]) continue;
+    indices.add(index - 1);
+    indices.add(index);
+    if (index + 1 < length) indices.add(index + 1);
+  }
+
+  return [...indices].sort((left, right) => left - right);
+}
+
 function makeOrbitSamples(
   result: ComparisonResult,
   scenario: ScenarioResult,
 ): OrbitSceneSample[] {
   const samples: OrbitSceneSample[] = [];
-  for (let index = 0; index < scenario.series.validLength; index += 1) {
+  for (const index of visualSampleIndices(scenario, 12_000)) {
     samples.push({
       timeS: result.timeS[index],
       xM: scenario.series.xM[index],
@@ -231,7 +258,7 @@ function makeChartSamples(
   scenario: ScenarioResult,
 ): MissionChartSample[] {
   const samples: MissionChartSample[] = [];
-  for (let index = 0; index < scenario.series.validLength; index += 1) {
+  for (const index of visualSampleIndices(scenario, 1_600)) {
     samples.push({
       timeS: result.timeS[index],
       altitudeM: scenario.series.altitudeM[index],
@@ -524,20 +551,31 @@ export function SimulatorApp({ active = true }: SimulatorAppProps) {
     if (!active || !isPlaying || !result) return;
     let frame = 0;
     let previous = performance.now();
+    let lastCommit = previous;
+    let accumulatedSimulatedSeconds = 0;
     const simulatedSecondsPerRealSecond = 6 * HOURS * playbackSpeed;
     const tick = (now: number) => {
       const elapsedRealSeconds = Math.min(0.1, (now - previous) / 1_000);
       previous = now;
-      setPlayheadTimeS((current) => {
-        const next = Math.min(
-          result.timeS[result.timeS.length - 1],
-          current + elapsedRealSeconds * simulatedSecondsPerRealSecond,
-        );
-        if (next >= result.timeS[result.timeS.length - 1]) {
-          setIsPlaying(false);
-        }
-        return next;
-      });
+      accumulatedSimulatedSeconds += elapsedRealSeconds * simulatedSecondsPerRealSecond;
+
+      // Keep WebGL playback fluid without forcing the complete React metrics,
+      // charts, and narrative tree through a 60 Hz render cycle.
+      if (now - lastCommit >= 1000 / 30) {
+        const advance = accumulatedSimulatedSeconds;
+        accumulatedSimulatedSeconds = 0;
+        lastCommit = now;
+        setPlayheadTimeS((current) => {
+          const next = Math.min(
+            result.timeS[result.timeS.length - 1],
+            current + advance,
+          );
+          if (next >= result.timeS[result.timeS.length - 1]) {
+            setIsPlaying(false);
+          }
+          return next;
+        });
+      }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);

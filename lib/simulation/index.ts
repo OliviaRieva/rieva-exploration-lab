@@ -192,6 +192,12 @@ function isFiniteNumber(value: number): boolean {
   return Number.isFinite(value);
 }
 
+function outputSampleCount(maxDurationS: number, outputStepS: number): number {
+  const wholeSteps = Math.floor(maxDurationS / outputStepS);
+  const needsTerminalSample = wholeSteps * outputStepS < maxDurationS;
+  return wholeSteps + 1 + (needsTerminalSample ? 1 : 0);
+}
+
 export function resolveSolverSettings(
   overrides: Partial<SolverSettings> = {},
 ): SolverSettings {
@@ -381,8 +387,11 @@ export function validateMissionParameters(
   }
   if (
     maxDurationIsFinite &&
+    parameters.maxDurationS > 0 &&
+    isFiniteNumber(settings.outputStepS) &&
     settings.outputStepS > 0 &&
-    parameters.maxDurationS / settings.outputStepS > MAX_OUTPUT_SAMPLES
+    outputSampleCount(parameters.maxDurationS, settings.outputStepS) >
+      MAX_OUTPUT_SAMPLES
   ) {
     issues.push({
       field: "outputStepS",
@@ -476,7 +485,15 @@ export function meetsTargetCriteria(
 ): boolean {
   return (
     Number.isFinite(semimajorAxisM) &&
+    semimajorAxisM > 0 &&
     Number.isFinite(eccentricity) &&
+    eccentricity >= 0 &&
+    Number.isFinite(targetSemimajorAxisM) &&
+    targetSemimajorAxisM > 0 &&
+    Number.isFinite(settings.semimajorAxisToleranceM) &&
+    settings.semimajorAxisToleranceM >= 0 &&
+    Number.isFinite(settings.eccentricityTolerance) &&
+    settings.eccentricityTolerance >= 0 &&
     Math.abs(semimajorAxisM - targetSemimajorAxisM) <=
       settings.semimajorAxisToleranceM &&
     eccentricity <= settings.eccentricityTolerance
@@ -573,17 +590,22 @@ export function rk4Step(
 }
 
 export function createOutputTimes(maxDurationS: number, outputStepS: number): number[] {
+  if (!Number.isFinite(maxDurationS) || maxDurationS < 0) {
+    throw new RangeError("Maximum duration must be a finite, non-negative number.");
+  }
+  if (!Number.isFinite(outputStepS) || outputStepS <= 0) {
+    throw new RangeError("Output step must be a positive finite number.");
+  }
+  const sampleCount = outputSampleCount(maxDurationS, outputStepS);
+  if (sampleCount > MAX_OUTPUT_SAMPLES) {
+    throw new RangeError("Output time axis exceeds the browser sample limit.");
+  }
   const wholeSteps = Math.floor(maxDurationS / outputStepS);
-  const times = new Array<number>(wholeSteps + 1);
+  const times = new Array<number>(sampleCount);
   for (let index = 0; index <= wholeSteps; index += 1) {
     times[index] = index * outputStepS;
   }
-  const last = times[times.length - 1];
-  if (last < maxDurationS) {
-    times.push(maxDurationS);
-  } else {
-    times[times.length - 1] = maxDurationS;
-  }
+  times[times.length - 1] = maxDurationS;
   return times;
 }
 
@@ -744,6 +766,14 @@ export function simulateScenario(
       { field: "simulation", message: "Output time axis must start at zero." },
     ]);
   }
+  if (timeS.length > MAX_OUTPUT_SAMPLES) {
+    throw new SimulationInputError([
+      {
+        field: "simulation",
+        message: "Output time axis exceeds the browser sample limit.",
+      },
+    ]);
+  }
 
   for (let index = 1; index < timeS.length; index += 1) {
     if (
@@ -779,10 +809,15 @@ export function simulateScenario(
   let impacted = false;
   let lastProgress = -1;
 
-  if (state.propellantKg <= MASS_EPSILON_KG) {
+  const markPropellantDepleted = (eventTimeS: number): void => {
     state.propellantKg = 0;
+    if (propellantDepletionRecorded) return;
     propellantDepletionRecorded = true;
-    events.push({ type: "propellant-depleted", timeS: 0 });
+    events.push({ type: "propellant-depleted", timeS: eventTimeS });
+  };
+
+  if (state.propellantKg <= MASS_EPSILON_KG) {
+    markPropellantDepleted(0);
   }
 
   const recordScheduledEvents = (): void => {
@@ -873,9 +908,7 @@ export function simulateScenario(
 
       if (stepS <= TIME_EPSILON_S) {
         if (reachesFuelDepletion && !propellantDepletionRecorded) {
-          state.propellantKg = 0;
-          propellantDepletionRecorded = true;
-          events.push({ type: "propellant-depleted", timeS: currentTimeS });
+          markPropellantDepleted(currentTimeS);
           continue;
         }
         currentTimeS = sampleTimeS;
@@ -934,8 +967,10 @@ export function simulateScenario(
             targetSemimajorAxisM,
         );
         state = crossing.state;
-        if (state.propellantKg < MASS_EPSILON_KG) state.propellantKg = 0;
         currentTimeS += crossing.elapsedS;
+        if (state.propellantKg <= MASS_EPSILON_KG) {
+          markPropellantDepleted(currentTimeS);
+        }
         targetCutoff = true;
         burnCutoffAtS = currentTimeS;
         events.push({ type: "target-thrust-cutoff", timeS: currentTimeS });
@@ -948,11 +983,7 @@ export function simulateScenario(
       currentTimeS = snapToBoundary(currentTimeS, parameters, scenario);
 
       if (reachesFuelDepletion) {
-        state.propellantKg = 0;
-        if (!propellantDepletionRecorded) {
-          propellantDepletionRecorded = true;
-          events.push({ type: "propellant-depleted", timeS: currentTimeS });
-        }
+        markPropellantDepleted(currentTimeS);
       } else if (state.propellantKg < 0 && state.propellantKg > -MASS_EPSILON_KG) {
         state.propellantKg = 0;
       }

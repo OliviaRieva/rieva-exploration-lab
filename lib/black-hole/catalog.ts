@@ -1,4 +1,4 @@
-import type { OrbitDirection, ProbeKind } from "./model";
+import type { OrbitDirection, ProbeKind } from "./model.ts";
 
 export interface BlackHolePreset {
   id: "stellar" | "sagittarius-a" | "m87";

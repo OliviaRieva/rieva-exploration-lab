@@ -39,7 +39,7 @@ export async function generateMetadata(): Promise<Metadata> {
       description: siteConfig.description,
       type: "website",
       images: [{
-        url: "/og-rieva-studios.png",
+        url: "/og-rieva-studios.jpg",
         width: 1774,
         height: 887,
         alt: "RIEVA laboratories represented by Earth, a rotating black hole, signal-orange missionwear, and the AERIS-X research aircraft.",
@@ -49,7 +49,7 @@ export async function generateMetadata(): Promise<Metadata> {
       card: "summary_large_image",
       title: siteConfig.title,
       description: siteConfig.description,
-      images: ["/og-rieva-studios.png"],
+      images: ["/og-rieva-studios.jpg"],
     },
   };
 }

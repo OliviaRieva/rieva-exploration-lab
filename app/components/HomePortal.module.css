@@ -270,6 +270,11 @@
   line-height: 0.88;
 }
 
+.hero h1[tabindex="-1"]:focus-visible {
+  outline: 3px solid rgba(105, 83, 216, 0.54);
+  outline-offset: 9px;
+}
+
 .hero h1 span {
   color: transparent;
   background: linear-gradient(104deg, #7253dc 9%, #657ee9 37%, #5ebee8 64%, #d987c6 91%);
@@ -343,6 +348,7 @@
     0 30px 70px rgba(78, 74, 139, 0.13),
     0 2px 5px rgba(80, 76, 140, 0.08);
   transition: border-color 300ms ease, box-shadow 300ms ease, transform 450ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 300ms ease;
+  touch-action: manipulation;
 }
 
 .portal::before {
@@ -2222,6 +2228,17 @@
 
   .portal {
     width: min(88vw, 342px);
+  }
+}
+
+@media (hover: none) {
+  .enterLabel {
+    opacity: 1;
+    transform: none;
+  }
+
+  .portal:hover {
+    transform: none;
   }
 }
 

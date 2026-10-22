@@ -155,6 +155,23 @@ export const DEFAULT_CONTACT_FLIGHT_CONFIGURATION: ContactFlightConfiguration = 
   },
 };
 
+const flightModes = new Set<FlightMode>(["cruise", "adaptive", "low-boom"]);
+const flowModes = new Set<FlowMode>(["streamlines", "pressure", "shock-cues"]);
+const scenarios = new Set<EncounterScenario>([
+  "unknown-signal",
+  "radiation-event",
+  "bioaerosol",
+  "sensor-dazzle",
+  "navigation-interference",
+]);
+
+function cloneDefaultContactFlightConfiguration(): ContactFlightConfiguration {
+  return {
+    ...DEFAULT_CONTACT_FLIGHT_CONFIGURATION,
+    modules: { ...DEFAULT_CONTACT_FLIGHT_CONFIGURATION.modules },
+  };
+}
+
 export const SCENARIO_SUGGESTIONS: Readonly<
   Record<EncounterScenario, readonly ContactModuleId[]>
 > = {
@@ -248,7 +265,7 @@ function finiteInRange(value: unknown, fallback: number, min: number, max: numbe
 
 /** 1976-standard-atmosphere equations through 20 km, sufficient for this lab. */
 export function standardAtmosphere(altitudeM: number): AtmosphereState {
-  const h = clamp(altitudeM, 0, 20_000);
+  const h = finiteInRange(altitudeM, 0, 0, 20_000);
   const gasConstant = 287.05287;
   const gamma = 1.4;
   let temperatureK: number;
@@ -282,18 +299,17 @@ export function normalizeContactFlightConfiguration(
   value: unknown,
 ): ContactFlightConfiguration {
   const base = DEFAULT_CONTACT_FLIGHT_CONFIGURATION;
-  if (!value || typeof value !== "object") return structuredClone(base);
+  if (!value || typeof value !== "object") {
+    return cloneDefaultContactFlightConfiguration();
+  }
   const candidate = value as Partial<ContactFlightConfiguration>;
-  const flightModes = new Set<FlightMode>(["cruise", "adaptive", "low-boom"]);
-  const flowModes = new Set<FlowMode>(["streamlines", "pressure", "shock-cues"]);
-  const scenarios = new Set<EncounterScenario>([
-    "unknown-signal",
-    "radiation-event",
-    "bioaerosol",
-    "sensor-dazzle",
-    "navigation-interference",
-  ]);
-  const inputModules = candidate.modules ?? base.modules;
+  if (candidate.version !== undefined && candidate.version !== 1) {
+    return cloneDefaultContactFlightConfiguration();
+  }
+  const inputModules =
+    candidate.modules && typeof candidate.modules === "object"
+      ? candidate.modules
+      : base.modules;
   const modules = Object.fromEntries(
     CONTACT_MODULES.map((module) => [
       module.id,
@@ -330,11 +346,13 @@ export function encodeContactFlightConfiguration(config: ContactFlightConfigurat
   return JSON.stringify(normalizeContactFlightConfiguration(config), null, 2);
 }
 
-export function decodeContactFlightConfiguration(serialized: string) {
+export function decodeContactFlightConfiguration(
+  serialized: string,
+): ContactFlightConfiguration {
   try {
     return normalizeContactFlightConfiguration(JSON.parse(serialized));
   } catch {
-    return structuredClone(DEFAULT_CONTACT_FLIGHT_CONFIGURATION);
+    return cloneDefaultContactFlightConfiguration();
   }
 }
 
@@ -353,16 +371,15 @@ export function evaluateContactFlight(
     (atmosphere.densityKgM3 * config.speedMps * MEAN_CHORD_M) /
     atmosphere.dynamicViscosityPaS;
 
-  const selectedModules = CONTACT_MODULES.filter((module) => config.modules[module.id]);
-  const moduleMassKg = selectedModules.reduce((sum, module) => sum + module.massKg, 0);
-  const modulePowerKw = selectedModules.reduce(
-    (sum, module) => sum + module.electricalPowerKw,
-    0,
-  );
-  const moduleDragIncrement = selectedModules.reduce(
-    (sum, module) => sum + module.deltaCd0,
-    0,
-  );
+  let moduleMassKg = 0;
+  let modulePowerKw = 0;
+  let moduleDragIncrement = 0;
+  for (const equipmentModule of CONTACT_MODULES) {
+    if (!config.modules[equipmentModule.id]) continue;
+    moduleMassKg += equipmentModule.massKg;
+    modulePowerKw += equipmentModule.electricalPowerKw;
+    moduleDragIncrement += equipmentModule.deltaCd0;
+  }
   const totalMassKg = BASE_MASS_KG + moduleMassKg;
 
   const alphaRad = (config.angleOfAttackDeg * Math.PI) / 180;

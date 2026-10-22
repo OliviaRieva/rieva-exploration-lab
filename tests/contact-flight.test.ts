@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CONTACT_MODULES,
   CONTACT_FLIGHT_ASSUMPTIONS,
   DEFAULT_CONTACT_FLIGHT_CONFIGURATION,
+  SCENARIO_SUGGESTIONS,
   configurationWithScenarioSuggestions,
   decodeContactFlightConfiguration,
   encodeContactFlightConfiguration,
@@ -10,6 +12,39 @@ import {
   normalizeContactFlightConfiguration,
   standardAtmosphere,
 } from "../lib/contact-flight/model.ts";
+import {
+  contactModuleDetails,
+  encounterScenarios,
+  researchItems,
+} from "../lib/contact-flight/catalog.ts";
+
+test("contact catalogs stay aligned with calculation and suggestion ids", () => {
+  const moduleIds = CONTACT_MODULES.map((module) => module.id);
+  assert.equal(new Set(moduleIds).size, moduleIds.length);
+  assert.deepEqual(
+    [...contactModuleDetails.map((module) => module.id)].sort(),
+    [...moduleIds].sort(),
+  );
+  for (const equipmentModule of CONTACT_MODULES) {
+    assert.equal(
+      contactModuleDetails.find((detail) => detail.id === equipmentModule.id)?.name,
+      equipmentModule.name,
+      `${equipmentModule.id} keeps one public name across catalogs`,
+    );
+  }
+
+  const moduleIdSet = new Set(moduleIds);
+  for (const ids of Object.values(SCENARIO_SUGGESTIONS)) {
+    assert.equal(new Set(ids).size, ids.length, "scenario suggestions are not duplicated");
+    for (const id of ids) assert.ok(moduleIdSet.has(id), `suggested module ${id} exists`);
+  }
+  assert.deepEqual(
+    [...encounterScenarios.map((scenario) => scenario.id)].sort(),
+    [...Object.keys(SCENARIO_SUGGESTIONS)].sort(),
+  );
+  const researchIds = researchItems.map((item) => item.id);
+  assert.equal(new Set(researchIds).size, researchIds.length);
+});
 
 test("standard atmosphere reproduces sea-level reference values", () => {
   const seaLevel = standardAtmosphere(0);
@@ -17,6 +52,15 @@ test("standard atmosphere reproduces sea-level reference values", () => {
   assert.ok(Math.abs(seaLevel.pressurePa - 101_325) < 1e-8);
   assert.ok(Math.abs(seaLevel.densityKgM3 - 1.225) < 0.001);
   assert.ok(Math.abs(seaLevel.speedOfSoundMps - 340.294) < 0.01);
+});
+
+test("standard atmosphere handles non-finite input and is continuous at 11 km", () => {
+  assert.deepEqual(standardAtmosphere(Number.NaN), standardAtmosphere(0));
+  assert.deepEqual(standardAtmosphere(Number.POSITIVE_INFINITY), standardAtmosphere(0));
+  const below = standardAtmosphere(11_000 - 1e-6);
+  const above = standardAtmosphere(11_000 + 1e-6);
+  assert.ok(Math.abs(below.temperatureK - above.temperatureK) < 1e-7);
+  assert.ok(Math.abs(below.pressurePa - above.pressurePa) < 0.1);
 });
 
 test("dynamic pressure and Mach number use the selected atmosphere", () => {
@@ -66,6 +110,26 @@ test("configuration persistence is normalized and round-trips", () => {
     decodeContactFlightConfiguration("{broken"),
     DEFAULT_CONTACT_FLIGHT_CONFIGURATION,
   );
+});
+
+test("persistence rejects future schemas and non-boolean module flags", () => {
+  const future = normalizeContactFlightConfiguration({
+    ...DEFAULT_CONTACT_FLIGHT_CONFIGURATION,
+    version: 2,
+    flightMode: "low-boom",
+  });
+  assert.deepEqual(future, DEFAULT_CONTACT_FLIGHT_CONFIGURATION);
+
+  const normalized = normalizeContactFlightConfiguration({
+    ...DEFAULT_CONTACT_FLIGHT_CONFIGURATION,
+    modules: {
+      "spectral-sensor": "false",
+      "bio-isolation": "true",
+    },
+  });
+  assert.equal(normalized.modules["spectral-sensor"], true);
+  assert.equal(normalized.modules["bio-isolation"], false);
+  assert.equal(normalized.modules["redundant-controls"], true);
 });
 
 test("invalid and extreme values are constrained to the documented lab range", () => {

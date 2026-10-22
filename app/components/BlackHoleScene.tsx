@@ -35,6 +35,11 @@ interface CameraOrbit {
 
 const RG_SCALE = 0.62;
 
+function preferredScenePixelRatio() {
+  const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  return Math.min(window.devicePixelRatio || 1, coarsePointer ? 1.5 : 1.75);
+}
+
 function radiusToWorld(radiusRg: number) {
   const clamped = Math.max(0.2, radiusRg);
   return RG_SCALE *
@@ -185,12 +190,30 @@ function createAccretionMaterial() {
 }
 
 function disposeObject(root: THREE.Object3D) {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
   root.traverse((child) => {
-    if (!(child instanceof THREE.Mesh || child instanceof THREE.Line || child instanceof THREE.Points)) return;
-    child.geometry.dispose();
-    const materials = Array.isArray(child.material) ? child.material : [child.material];
-    materials.forEach((material) => material.dispose());
+    const renderable = child as THREE.Object3D & {
+      geometry?: THREE.BufferGeometry;
+      material?: THREE.Material | THREE.Material[];
+    };
+    if (renderable.geometry) geometries.add(renderable.geometry);
+    const objectMaterials = renderable.material
+      ? Array.isArray(renderable.material)
+        ? renderable.material
+        : [renderable.material]
+      : [];
+    objectMaterials.forEach((material) => {
+      materials.add(material);
+      Object.values(material).forEach((value) => {
+        if (value instanceof THREE.Texture) textures.add(value);
+      });
+    });
   });
+  geometries.forEach((geometry) => geometry.dispose());
+  textures.forEach((texture) => texture.dispose());
+  materials.forEach((material) => material.dispose());
 }
 
 export function BlackHoleScene({
@@ -219,6 +242,8 @@ export function BlackHoleScene({
   const cameraOrbitRef = useRef<CameraOrbit>({ yaw: 0.72, pitch: 0.34, distance: 13.5 });
   const setViewRef = useRef<(name: string) => void>(() => undefined);
   const zoomRef = useRef<(delta: number) => void>(() => undefined);
+  const requestRenderRef = useRef<() => void>(() => undefined);
+  const syncRenderingRef = useRef<() => void>(() => undefined);
   const animationFrameRef = useRef<number | null>(null);
   const renderLoopRef = useRef<((time: number) => void) | null>(null);
   const contextLostRef = useRef(false);
@@ -234,22 +259,16 @@ export function BlackHoleScene({
       playing,
       speed,
     };
-    if (!active && animationFrameRef.current !== null) {
-      window.cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    } else if (
-      active &&
-      !contextLostRef.current &&
-      animationFrameRef.current === null &&
-      renderLoopRef.current
-    ) {
-      animationFrameRef.current = window.requestAnimationFrame(renderLoopRef.current);
-    }
+    syncRenderingRef.current();
   }, [active, animationMode, direction, playing, probeKind, radiusRg, speed, spin]);
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
+    let inViewport = true;
+    let documentVisible = !document.hidden;
+    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let reducedMotion = reducedMotionQuery.matches;
 
     let renderer: THREE.WebGLRenderer;
     try {
@@ -260,7 +279,8 @@ export function BlackHoleScene({
       return () => window.clearTimeout(errorTimer);
     }
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(preferredScenePixelRatio());
+    contextLostRef.current = false;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
@@ -393,9 +413,18 @@ export function BlackHoleScene({
     let lastGuideSignature = "";
     let elapsed = 0;
     let previousTime = performance.now();
+    let cachedSpin = Number.NaN;
+    let cachedRadii = kerrRadii(0);
+    const radiiForSpin = (currentSpin: number) => {
+      if (currentSpin !== cachedSpin) {
+        cachedSpin = currentSpin;
+        cachedRadii = kerrRadii(currentSpin);
+      }
+      return cachedRadii;
+    };
 
     const updateCoordinateSurfaces = (currentSpin: number) => {
-      const radii = kerrRadii(currentSpin);
+      const radii = radiiForSpin(currentSpin);
       horizon.scale.setScalar(radiusToWorld(radii.horizonRg));
       halo.scale.setScalar(radiusToWorld(radii.horizonRg) / 1.15);
       const positions = ergoGeometry.attributes.position as THREE.BufferAttribute;
@@ -409,7 +438,6 @@ export function BlackHoleScene({
         positions.setXYZ(index, (x / length) * radial, (y / length) * radial, (z / length) * radial);
       }
       positions.needsUpdate = true;
-      ergoGeometry.computeVertexNormals();
     };
 
     const clearGroup = (group: THREE.Group) => {
@@ -420,7 +448,7 @@ export function BlackHoleScene({
     };
 
     const rebuildGuides = (currentSpin: number, currentDirection: OrbitDirection, selectedRadius: number) => {
-      const radii = kerrRadii(currentSpin);
+      const radii = radiiForSpin(currentSpin);
       const isco = currentDirection === "prograde" ? radii.progradeIscoRg : radii.retrogradeIscoRg;
       const photon = currentDirection === "prograde" ? radii.progradePhotonRg : radii.retrogradePhotonRg;
       const signature = `${currentSpin.toFixed(4)}-${currentDirection}-${selectedRadius.toFixed(3)}`;
@@ -462,6 +490,7 @@ export function BlackHoleScene({
       else cameraOrbitRef.current = { yaw: 0.72, pitch: 0.34, distance: 13.5 };
       setViewName(name);
       updateCamera();
+      requestRenderRef.current();
     };
     zoomRef.current = (delta: number) => {
       cameraOrbitRef.current.distance = THREE.MathUtils.clamp(
@@ -471,6 +500,7 @@ export function BlackHoleScene({
       );
       setViewName("Custom");
       updateCamera();
+      requestRenderRef.current();
     };
     updateCamera();
 
@@ -496,6 +526,8 @@ export function BlackHoleScene({
       pointerX = event.clientX;
       pointerY = event.clientY;
       setViewName("Custom");
+      updateCamera();
+      requestRenderRef.current();
     };
     const onPointerUp = () => {
       dragging = false;
@@ -520,33 +552,54 @@ export function BlackHoleScene({
     canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("webglcontextlost", onContextLost);
 
+    let lastWidth = 0;
+    let lastHeight = 0;
+    let lastPixelRatio = 0;
     const resize = () => {
-      const width = Math.max(1, mount.clientWidth);
-      const height = Math.max(1, mount.clientHeight);
+      const width = Math.max(1, Math.round(mount.clientWidth));
+      const height = Math.max(1, Math.round(mount.clientHeight));
+      const pixelRatio = preferredScenePixelRatio();
+      if (
+        width === lastWidth &&
+        height === lastHeight &&
+        pixelRatio === lastPixelRatio
+      ) return;
+      lastWidth = width;
+      lastHeight = height;
+      lastPixelRatio = pixelRatio;
+      renderer.setPixelRatio(pixelRatio);
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
+      requestRenderRef.current();
     };
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(mount);
+    window.addEventListener("resize", resize, { passive: true });
     resize();
 
     const animate = (time: number) => {
       animationFrameRef.current = null;
-      if (!settingsRef.current.active) return;
+      if (
+        !settingsRef.current.active ||
+        !inViewport ||
+        !documentVisible ||
+        contextLostRef.current
+      ) return;
       const delta = Math.min(0.05, Math.max(0, (time - previousTime) / 1_000));
       previousTime = time;
       const settings = settingsRef.current;
       if (settings.active && settings.playing) elapsed += delta * settings.speed;
+      const ambientElapsed = reducedMotion ? 0 : elapsed;
 
       rebuildGuides(settings.spin, settings.direction, settings.radiusRg);
       updateProbe(settings.probeKind);
-      diskMaterial.uniforms.time.value = elapsed;
-      disk.rotation.y = elapsed * (0.055 + settings.spin * 0.12);
-      diskCore.rotation.y = -elapsed * 0.08;
-      stars.rotation.y = elapsed * 0.003;
+      diskMaterial.uniforms.time.value = ambientElapsed;
+      disk.rotation.y = ambientElapsed * (0.055 + settings.spin * 0.12);
+      diskCore.rotation.y = -ambientElapsed * 0.08;
+      stars.rotation.y = ambientElapsed * 0.003;
 
-      const radii = kerrRadii(settings.spin);
+      const radii = radiiForSpin(settings.spin);
       const directionSign = settings.direction === "prograde" ? 1 : -1;
       const orbitPhase = elapsed * directionSign * 0.62;
       const selectedWorld = radiusToWorld(settings.radiusRg);
@@ -573,26 +626,78 @@ export function BlackHoleScene({
       probeRoot.rotation.y = -orbitPhase + (directionSign > 0 ? Math.PI / 2 : -Math.PI / 2);
       probeRoot.rotation.z = settings.animationMode === "precess" ? Math.sin(elapsed * 2) * 0.15 : 0;
 
-      const pulse = 1 + Math.sin(elapsed * 2.1) * 0.045;
+      const pulse = 1 + Math.sin(ambientElapsed * 2.1) * 0.045;
       halo.scale.multiplyScalar(pulse / (halo.userData.previousPulse ?? 1));
       halo.userData.previousPulse = pulse;
-      ergosphere.rotation.y = elapsed * settings.spin * 0.09;
-      updateCamera();
+      ergosphere.rotation.y = ambientElapsed * settings.spin * 0.09;
       renderer.render(scene, camera);
-      animationFrameRef.current = window.requestAnimationFrame(animate);
+      if (settings.playing) requestRenderRef.current();
     };
     renderLoopRef.current = animate;
-    if (settingsRef.current.active && !contextLostRef.current) {
-      animationFrameRef.current = window.requestAnimationFrame(animate);
-    }
 
-    return () => {
+    const requestRender = () => {
+      if (
+        animationFrameRef.current !== null ||
+        !renderLoopRef.current ||
+        !settingsRef.current.active ||
+        !inViewport ||
+        !documentVisible ||
+        contextLostRef.current
+      ) return;
+      animationFrameRef.current = window.requestAnimationFrame(renderLoopRef.current);
+    };
+    const stopRendering = () => {
       if (animationFrameRef.current !== null) {
         window.cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
       }
+    };
+    const syncRendering = () => {
+      if (
+        settingsRef.current.active &&
+        inViewport &&
+        documentVisible &&
+        !contextLostRef.current
+      ) {
+        previousTime = performance.now();
+        requestRender();
+      } else {
+        stopRendering();
+      }
+    };
+    requestRenderRef.current = requestRender;
+    syncRenderingRef.current = syncRendering;
+
+    const onVisibilityChange = () => {
+      documentVisible = document.visibilityState !== "hidden";
+      syncRendering();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const visibilityObserver = new IntersectionObserver(
+      ([entry]) => {
+        inViewport = Boolean(entry?.isIntersecting);
+        syncRendering();
+      },
+      { rootMargin: "120px", threshold: 0.01 },
+    );
+    visibilityObserver.observe(mount);
+    const onReducedMotionChange = (event: MediaQueryListEvent) => {
+      reducedMotion = event.matches;
+      syncRendering();
+    };
+    reducedMotionQuery.addEventListener("change", onReducedMotionChange);
+    syncRendering();
+
+    return () => {
+      stopRendering();
       renderLoopRef.current = null;
+      requestRenderRef.current = () => undefined;
+      syncRenderingRef.current = () => undefined;
       resizeObserver.disconnect();
+      visibilityObserver.disconnect();
+      window.removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      reducedMotionQuery.removeEventListener("change", onReducedMotionChange);
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerUp);
