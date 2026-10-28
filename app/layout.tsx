@@ -40,9 +40,9 @@ export async function generateMetadata(): Promise<Metadata> {
       type: "website",
       images: [{
         url: "/og-rieva-studios.jpg",
-        width: 1774,
-        height: 887,
-        alt: "RIEVA laboratories represented by Earth, a rotating black hole, signal-orange missionwear, and the AERIS-X research aircraft.",
+        width: 1200,
+        height: 630,
+        alt: "A Blender-rendered RIEVA spacecraft orbiting the chrome-white wordmark.",
       }],
     },
     twitter: {

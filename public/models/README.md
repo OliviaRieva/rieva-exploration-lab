@@ -79,9 +79,9 @@ tandem canopy with cockpit furniture, flush service panels, and modeled landing
 doors. Behind those closed cruise doors are original stowed wheels, hubs, oleo
 struts, and side braces for cutaway inspection. Materials expose glTF-friendly
 metalness, roughness, clear-coat, transmission, anisotropy, and emissive values.
-The browser export contains 170 meshes, 11,642 vertices, and 20,124 triangles in
-545,340 bytes; the named interactive roots and optional-module hierarchy are
-unchanged.
+The browser export contains 170 meshes, 14,258 exported primitive vertices,
+and 25,356 triangles in 545,340 bytes; the named interactive roots and
+optional-module hierarchy are unchanged.
 
 The public preview for Ankur Chauhan's **Fighter Jet** listing on BlendKit was
 used only as a visual-quality benchmark for generic aircraft cues: a compact

@@ -1,8 +1,10 @@
 # RIEVA — Exploration Systems Laboratory
 
 <p align="center">
-  <img src="public/og-rieva-studios.jpg" alt="RIEVA laboratories: orbital flight, rotating black holes, missionwear, and aerodynamic research" width="100%" />
+  <img src="docs/media/rieva-readme-hero.webp" alt="A Blender-rendered RIEVA spacecraft completing an orbit around the chrome-white wordmark" width="100%" />
 </p>
+
+<p align="center"><sub>Modeled, lit, animated, and rendered procedurally in Blender · no generative image or downloaded model</sub></p>
 
 <p align="center">
   <a href="https://rieva-exploration-lab.oliviarieva.chatgpt.site"><strong>Launch the live experience ↗</strong></a>
@@ -202,9 +204,12 @@ lib/
   contact-flight/catalog.ts parts, modules, evidence and dated sources
   site-config.ts           single-source brand configuration
 scripts/
-  build_rieva_suits.py    reproducible Blender missionwear build pipeline
-  build_aeris_x.py         reproducible original AERIS-X Blender pipeline
-  validate.py              independent Python validation
+  build_rieva_suits.py      reproducible Blender missionwear build pipeline
+  build_aeris_x.py          reproducible original AERIS-X Blender pipeline
+  build_readme_animation.py reproducible Blender wordmark and orbital loop
+  validate.py               independent Python validation
+docs/media/
+  rieva-readme-hero.webp    compact 72-frame Blender animation for GitHub
 public/models/
   rieva-missionwear.glb    authored MAX, MALTE and BASTIAN browser asset
   rieva-aeris-x.glb        named interactive Contact Flight aircraft asset
@@ -231,6 +236,19 @@ blender -b /path/to/human_base_meshes_bundle.blend \
 ```
 
 The generated garment and equipment geometry is original to RIEVA. The anatomical scaffold is Blender Studio’s CC0 base mesh; its provenance is recorded alongside the asset.
+
+### Rebuilding the GitHub animation
+
+The README banner is constructed entirely from geometry, materials, lights, and keyframes in `scripts/build_readme_animation.py`. Blender renders the frames; FFmpeg encodes the checked-in animated WebP. No generative imagery, downloaded model, texture, or third-party logo is used.
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender -b \
+  -P scripts/build_readme_animation.py -- \
+  --frames-dir /tmp/rieva-readme-frames \
+  --webp docs/media/rieva-readme-hero.webp \
+  --preview /tmp/rieva-readme-preview.png \
+  --blend /tmp/rieva-readme-hero.blend
+```
 
 ## Primary references
 
