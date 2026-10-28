@@ -1,8 +1,31 @@
 # RIEVA — Exploration Systems Laboratory
 
+<p align="center">
+  <img src="public/og-rieva-studios.jpg" alt="RIEVA laboratories: orbital flight, rotating black holes, missionwear, and aerodynamic research" width="100%" />
+</p>
+
+<p align="center">
+  <a href="https://rieva-exploration-lab.oliviarieva.chatgpt.site"><strong>Launch the live experience ↗</strong></a>
+  &nbsp;·&nbsp;
+  <a href="#validation">Validation</a>
+  &nbsp;·&nbsp;
+  <a href="#physics-model">Physics model</a>
+  &nbsp;·&nbsp;
+  <a href="#run-locally">Run locally</a>
+</p>
+
+<p align="center"><sub>Concept, research direction, and product design by Olivia Rieva · implementation developed iteratively with Codex · React, TypeScript, Three.js, Blender, and Python</sub></p>
+
 RIEVA combines four persistent browser laboratories behind an animated home portal. **Orbital Flight** is an electric-propulsion mission study that propagates an uninterrupted reference and an otherwise identical mission with one engine interruption. **Black Hole Laboratory** explores calculated Kerr boundaries and transparent orbit diagnostics around rotating black holes. **Surface Studio — Missionwear** is an independent research-informed aerospace design exhibition with a Blender-authored 3D suit configurator, materials inspector, environmental test room, and transparent mission rules. **Contact Flight** combines an original Blender aircraft, an interactive aerodynamic point model, a turbine-engine explainer, transparent first-contact resilience modules, and a dated evidence map for astrobiology, SETI, aerodynamics, and propulsion. Switching laboratories preserves each laboratory’s React state.
 
 The **RIEVA** identity is centralized in [`lib/site-config.ts`](lib/site-config.ts), so public naming stays consistent across all four laboratories.
+
+| Laboratory | Interactive study | Honest model boundary |
+|---|---|---|
+| Orbital Flight | Low-thrust transfers, power loss, propellant, and target-orbit criteria | Planar two-body RK4 model, not a flight-design optimizer |
+| Black Hole Lab | Kerr boundaries, photon orbits, ISCO, and tidal scale | Analytic diagnostics and illustration, not numerical ray tracing |
+| Surface Studio | Articulated missionwear, materials, mobility, and environment tests | Research-informed concepts, not qualified EVA hardware |
+| Contact Flight | Aircraft configuration, airflow cues, atmosphere, and research evidence | Educational point model, not CFD or certification analysis |
 
 ## Run locally
 
